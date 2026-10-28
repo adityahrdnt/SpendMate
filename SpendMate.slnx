@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/backend/">
+    <Project Path="src/backend/SpendMate.Api/SpendMate.Api.csproj" />
+    <Project Path="src/backend/SpendMate.Application/SpendMate.Application.csproj" />
+    <Project Path="src/backend/SpendMate.Domain/SpendMate.Domain.csproj" />
+    <Project Path="src/backend/SpendMate.Infrastructure/SpendMate.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SpendMate.IntegrationTests/SpendMate.IntegrationTests.csproj" />
+    <Project Path="tests/SpendMate.UnitTests/SpendMate.UnitTests.csproj" />
+  </Folder>
+</Solution>

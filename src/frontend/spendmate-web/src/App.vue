@@ -1,0 +1,451 @@
+
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+
+type Expense = {
+  id: number
+  description: string
+  category: string
+  amount: number
+  date: string
+  createdBy: string
+}
+
+type Page = 'Dashboard' | 'Expenses' | 'Chat Demo'
+
+const activePage = ref<Page>('Dashboard')
+const selectedFilter = ref('All')
+const isExpenseModalOpen = ref(false)
+
+const expenses = ref<Expense[]>([
+  { id: 1, description: 'Belanja bulanan', category: 'Groceries', amount: 425000, date: '2026-10-28', createdBy: 'You' },
+  { id: 2, description: 'Makan siang keluarga', category: 'Food & Dining', amount: 85000, date: '2026-10-28', createdBy: 'You' },
+  { id: 3, description: 'Bensin mobil', category: 'Transport', amount: 250000, date: '2026-10-27', createdBy: 'Sarah' },
+  { id: 4, description: 'Tagihan internet', category: 'Bills', amount: 350000, date: '2026-10-26', createdBy: 'Sarah' },
+  { id: 5, description: 'Susu dan kebutuhan anak', category: 'Groceries', amount: 178000, date: '2026-10-25', createdBy: 'You' },
+  { id: 6, description: 'Kopi', category: 'Food & Dining', amount: 32000, date: '2026-10-24', createdBy: 'Sarah' },
+])
+
+const categories = [
+  { name: 'Groceries', color: '#3c8c70', icon: '🛒' },
+  { name: 'Food & Dining', color: '#e9a23b', icon: '🍜' },
+  { name: 'Transport', color: '#6587d8', icon: '🚗' },
+  { name: 'Bills', color: '#a47bc2', icon: '🧾' },
+  { name: 'Other', color: '#9ca3af', icon: '📦' },
+]
+
+const filteredExpenses = computed(() => {
+  const sorted = [...expenses.value].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+  if (selectedFilter.value === 'All') return sorted
+  return sorted.filter(expense => expense.category === selectedFilter.value)
+})
+
+const totalSpent = computed(() =>
+  expenses.value.reduce((sum, expense) => sum + expense.amount, 0),
+)
+
+const categoryTotals = computed(() => {
+  const totals = categories.map(category => ({
+    ...category,
+    amount: expenses.value
+      .filter(expense => expense.category === category.name)
+      .reduce((sum, expense) => sum + expense.amount, 0),
+  }))
+
+  return totals
+    .filter(category => category.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
+})
+
+const largestCategory = computed(() => categoryTotals.value[0]?.name ?? '—')
+
+const newExpense = ref({
+  description: '',
+  category: 'Food & Dining',
+  amount: '',
+  date: new Date().toISOString().slice(0, 10),
+})
+
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
+
+function formatDate(date: string) {
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(`${date}T12:00:00`))
+}
+
+function addExpense() {
+  const amount = Number(newExpense.value.amount)
+
+  if (
+    !newExpense.value.description.trim()
+    || !Number.isFinite(amount)
+    || amount <= 0
+    || !newExpense.value.date
+  ) {
+    return
+  }
+
+  expenses.value.unshift({
+    id: Math.max(0, ...expenses.value.map(expense => expense.id)) + 1,
+    description: newExpense.value.description.trim(),
+    category: newExpense.value.category,
+    amount,
+    date: newExpense.value.date,
+    createdBy: 'You',
+  })
+
+  newExpense.value = {
+    description: '',
+    category: 'Food & Dining',
+    amount: '',
+    date: new Date().toISOString().slice(0, 10),
+  }
+
+  isExpenseModalOpen.value = false
+}
+</script>
+
+<template>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#" @click.prevent="activePage = 'Dashboard'">
+        <span class="brand-mark">S</span>
+        <span>spend<span class="brand-light">mate</span></span>
+      </a>
+
+      <div class="workspace">
+        <div class="workspace-avatar">H</div>
+        <div class="workspace-copy">
+          <span class="eyebrow">WORKSPACE</span>
+          <strong>Herdianto Family</strong>
+        </div>
+        <span class="chevron">⌄</span>
+      </div>
+
+      <span class="nav-label">MENU</span>
+      <nav class="main-nav" aria-label="Main navigation">
+        <button
+          v-for="item in [
+            { name: 'Dashboard' as Page, icon: '▦' },
+            { name: 'Expenses' as Page, icon: '↗' },
+            { name: 'Chat Demo' as Page, icon: '☏' },
+          ]"
+          :key="item.name"
+          class="nav-item"
+          :class="{ active: activePage === item.name }"
+          @click="activePage = item.name"
+        >
+          <span class="nav-icon">{{ item.icon }}</span>
+          {{ item.name }}
+          <span v-if="item.name === 'Chat Demo'" class="demo-tag">DEMO</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="family-card">
+          <div class="family-avatars">
+            <span class="person-avatar avatar-one">A</span>
+            <span class="person-avatar avatar-two">S</span>
+            <span class="person-avatar avatar-three">+</span>
+          </div>
+          <strong>Better together.</strong>
+          <p>Keep your family spending in sync.</p>
+          <button @click="activePage = 'Expenses'">View family activity <span>→</span></button>
+        </div>
+        <div class="profile">
+          <div class="profile-avatar">A</div>
+          <div class="profile-copy">
+            <strong>Aditya</strong>
+            <span>Family owner</span>
+          </div>
+          <span class="more-icon">···</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div class="breadcrumb">
+          <span>Workspace</span><span class="breadcrumb-separator">/</span>
+          <strong>{{ activePage }}</strong>
+        </div>
+        <div class="topbar-actions">
+          <span class="current-month">October 2026</span>
+          <button class="avatar-small" aria-label="User profile">A</button>
+        </div>
+      </header>
+
+      <div class="page-content">
+        <template v-if="activePage !== 'Chat Demo'">
+          <section class="page-heading">
+            <div>
+              <div class="greeting">WEDNESDAY, OCTOBER 28, 2026</div>
+              <h1>{{ activePage === 'Dashboard' ? 'Your family at a glance' : 'All expenses' }}</h1>
+              <p class="subtitle">
+                {{ activePage === 'Dashboard'
+                  ? 'A clearer picture of your money, together.'
+                  : 'Keep track of every expense shared by your family.' }}
+              </p>
+            </div>
+            <button class="primary-button" @click="isExpenseModalOpen = true">
+              <span class="plus-icon">+</span> Add expense
+            </button>
+          </section>
+
+          <section v-if="activePage === 'Dashboard'" class="summary-grid">
+            <article class="summary-card total-card">
+              <div class="card-topline">
+                <span class="summary-label">Total expenses</span>
+                <span class="summary-icon green-icon">↗</span>
+              </div>
+              <div class="summary-amount">{{ formatCurrency(totalSpent) }}</div>
+              <div class="summary-foot"><span class="status-dot"></span> October spending so far</div>
+              <div class="card-decoration decoration-one"></div>
+            </article>
+
+            <article class="summary-card">
+              <div class="card-topline">
+                <span class="summary-label">Transactions</span>
+                <span class="summary-icon blue-icon">≡</span>
+              </div>
+              <div class="summary-amount">{{ expenses.length }}</div>
+              <div class="summary-foot">Recorded this month</div>
+            </article>
+
+            <article class="summary-card">
+              <div class="card-topline">
+                <span class="summary-label">Average expense</span>
+                <span class="summary-icon amber-icon">◷</span>
+              </div>
+              <div class="summary-amount">
+                {{ formatCurrency(expenses.length ? Math.round(totalSpent / expenses.length) : 0) }}
+              </div>
+              <div class="summary-foot">Per transaction</div>
+            </article>
+
+            <article class="summary-card">
+              <div class="card-topline">
+                <span class="summary-label">Top category</span>
+                <span class="summary-icon purple-icon">◇</span>
+              </div>
+              <div class="summary-amount category-highlight">{{ largestCategory }}</div>
+              <div class="summary-foot">By total spending</div>
+            </article>
+          </section>
+
+          <section v-if="activePage === 'Dashboard'" class="content-grid">
+            <article class="panel category-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Spending by category</h2>
+                  <p class="panel-subtitle">Where your money goes</p>
+                </div>
+                <button class="text-button" @click="activePage = 'Expenses'">View all <span>→</span></button>
+              </div>
+
+              <div v-if="categoryTotals.length" class="category-list">
+                <div v-for="category in categoryTotals" :key="category.name" class="category-row">
+                  <div class="category-icon" :style="{ backgroundColor: `${category.color}18` }">
+                    {{ category.icon }}
+                  </div>
+                  <div class="category-info">
+                    <div class="category-label-row">
+                      <span class="category-name">{{ category.name }}</span>
+                      <strong>{{ formatCurrency(category.amount) }}</strong>
+                    </div>
+                    <div class="progress-track">
+                      <div
+                        class="progress-bar"
+                        :style="{
+                          width: `${totalSpent ? category.amount / totalSpent * 100 : 0}%`,
+                          backgroundColor: category.color,
+                        }"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p v-else class="empty-state">Add an expense to see your category breakdown.</p>
+              <div class="category-total">
+                <span>Total across categories</span>
+                <strong>{{ formatCurrency(totalSpent) }}</strong>
+              </div>
+            </article>
+
+            <article class="panel activity-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Family activity</h2>
+                  <p class="panel-subtitle">Who added what</p>
+                </div>
+                <span class="live-label"><span></span> This month</span>
+              </div>
+
+              <div class="activity-list">
+                <div v-for="expense in expenses.slice(0, 4)" :key="expense.id" class="activity-row">
+                  <div class="activity-avatar" :class="expense.createdBy === 'You' ? 'you-avatar' : 'sarah-avatar'">
+                    {{ expense.createdBy === 'You' ? 'A' : 'S' }}
+                  </div>
+                  <div class="activity-info">
+                    <strong>{{ expense.createdBy }}</strong>
+                    <span>added {{ expense.description.toLowerCase() }}</span>
+                    <small>{{ formatDate(expense.date) }}</small>
+                  </div>
+                  <strong class="activity-amount">{{ formatCurrency(expense.amount) }}</strong>
+                </div>
+              </div>
+              <div class="activity-footer">
+                <span class="member-indicator"></span>
+                <span>2 family members contributing</span>
+              </div>
+            </article>
+          </section>
+
+          <section class="panel transactions-panel">
+            <div class="panel-heading transaction-heading">
+              <div>
+                <h2>{{ activePage === 'Dashboard' ? 'Recent transactions' : 'Expense history' }}</h2>
+                <p class="panel-subtitle">
+                  {{ activePage === 'Dashboard' ? 'Your latest family expenses' : `${filteredExpenses.length} transaction(s)` }}
+                </p>
+              </div>
+              <div class="transaction-actions">
+                <select v-model="selectedFilter" aria-label="Filter by category" class="filter-select">
+                  <option>All</option>
+                  <option v-for="category in categories" :key="category.name" :value="category.name">
+                    {{ category.name }}
+                  </option>
+                </select>
+                <button v-if="activePage === 'Dashboard'" class="text-button desktop-only" @click="activePage = 'Expenses'">
+                  View all <span>→</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>DESCRIPTION</th>
+                    <th>CATEGORY</th>
+                    <th>DATE</th>
+                    <th>ADDED BY</th>
+                    <th class="amount-column">AMOUNT</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="expense in (activePage === 'Dashboard' ? filteredExpenses.slice(0, 5) : filteredExpenses)" :key="expense.id">
+                    <td>
+                      <div class="expense-description">
+                        <span class="expense-bullet" :class="{ 'bullet-food': expense.category === 'Food & Dining' }">
+                          {{ categories.find(category => category.name === expense.category)?.icon ?? '📦' }}
+                        </span>
+                        <strong>{{ expense.description }}</strong>
+                      </div>
+                    </td>
+                    <td><span class="category-pill">{{ expense.category }}</span></td>
+                    <td class="date-cell">{{ formatDate(expense.date) }}</td>
+                    <td>
+                      <span class="added-by">
+                        <span class="mini-avatar" :class="expense.createdBy === 'You' ? 'you-avatar' : 'sarah-avatar'">
+                          {{ expense.createdBy === 'You' ? 'A' : 'S' }}
+                        </span>
+                        {{ expense.createdBy }}
+                      </span>
+                    </td>
+                    <td class="amount-column amount-cell">{{ formatCurrency(expense.amount) }}</td>
+                  </tr>
+                  <tr v-if="filteredExpenses.length === 0">
+                    <td colspan="5" class="empty-table">No expenses found for this category.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <footer class="page-footer">
+            <span>Made for the things that matter.</span>
+            <span>SpendMate <span class="footer-dot">•</span> MVP preview</span>
+          </footer>
+        </template>
+
+        <section v-else class="chat-demo-page">
+          <div class="page-heading">
+            <div>
+              <div class="greeting">QUICK CAPTURE</div>
+              <h1>Chat Demo</h1>
+              <p class="subtitle">Try adding an expense using a simple chat message.</p>
+            </div>
+          </div>
+          <div class="chat-card">
+            <div class="chat-header">
+              <div class="chat-avatar">S</div>
+              <div><strong>SpendMate Assistant</strong><span>Simulated chat · Demo only</span></div>
+              <span class="demo-tag">DEMO</span>
+            </div>
+            <div class="chat-messages">
+              <div class="chat-date">TODAY</div>
+              <div class="message assistant-message">
+                Hi! Try typing an expense such as <strong>Makan siang 35000</strong>. This is a UI preview; chat parsing will be implemented in a later step.
+              </div>
+              <div class="message user-message">Belanja bulanan 150000</div>
+              <div class="message assistant-message">Example message received! Expense parsing and confirmation are coming next.</div>
+            </div>
+            <form class="chat-input" @submit.prevent="activePage = 'Expenses'">
+              <input aria-label="Chat message" placeholder="e.g. Makan siang 35000" />
+              <button type="submit" aria-label="Send message">↑</button>
+            </form>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <div v-if="isExpenseModalOpen" class="modal-backdrop" @click.self="isExpenseModalOpen = false">
+      <section class="expense-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-heading">
+          <div>
+            <span class="greeting">FAMILY FINANCES</span>
+            <h2 id="modal-title">Add an expense</h2>
+            <p>Record a new family transaction.</p>
+          </div>
+          <button class="close-button" aria-label="Close dialog" @click="isExpenseModalOpen = false">×</button>
+        </div>
+        <form class="expense-form" @submit.prevent="addExpense">
+          <label>
+            Description
+            <input v-model="newExpense.description" required maxlength="100" placeholder="e.g. Weekly groceries" />
+          </label>
+          <label>
+            Amount (IDR)
+            <input v-model="newExpense.amount" required type="number" min="1" step="1" placeholder="150000" />
+          </label>
+          <label>
+            Category
+            <select v-model="newExpense.category" required>
+              <option v-for="category in categories" :key="category.name" :value="category.name">
+                {{ category.name }}
+              </option>
+            </select>
+          </label>
+          <label>
+            Expense date
+            <input v-model="newExpense.date" required type="date" />
+          </label>
+          <div class="modal-actions">
+            <button type="button" class="secondary-button" @click="isExpenseModalOpen = false">Cancel</button>
+            <button type="submit" class="primary-button">Save expense</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </div>
+</template>
