@@ -294,4 +294,208 @@ describe("SpendMate dashboard", () => {
     wrapper.unmount();
     confirmSpy.mockRestore();
   });
+
+  it("filters expenses by the selected month", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 29, 12));
+
+    try {
+      const lastMonthExpense = {
+        ...sampleExpense,
+        id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        description: "September groceries",
+        category: "Groceries",
+        amount: 100000,
+        expenseDate: "2026-09-15",
+      };
+
+      const currentMonthExpense = {
+        ...sampleExpense,
+        id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        description: "October lunch",
+        amount: 35000,
+        expenseDate: "2026-10-28",
+      };
+
+      vi.mocked(getExpenses).mockResolvedValue([
+        lastMonthExpense,
+        currentMonthExpense,
+      ]);
+
+      const wrapper = mount(App);
+      await flushPromises();
+
+      expect(wrapper.text()).toContain("October lunch");
+      expect(wrapper.text()).not.toContain("September groceries");
+      expect(wrapper.text().replace(/\s/g, "")).toContain("Rp35.000");
+
+      const lastMonthButton = wrapper
+        .findAll("button")
+        .find((button) => button.text().trim() === "Last month");
+
+      expect(lastMonthButton).toBeDefined();
+      await lastMonthButton!.trigger("click");
+
+      expect(wrapper.text()).toContain("September groceries");
+      expect(wrapper.text()).not.toContain("October lunch");
+      expect(wrapper.text().replace(/\s/g, "")).toContain("Rp100.000");
+
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("filters expenses by a custom date range", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 29, 12));
+
+    try {
+      const expenses = [
+        {
+          ...sampleExpense,
+          id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          description: "Before range",
+          expenseDate: "2026-10-09",
+          amount: 10000,
+        },
+        {
+          ...sampleExpense,
+          id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          description: "Range start",
+          expenseDate: "2026-10-10",
+          amount: 20000,
+        },
+        {
+          ...sampleExpense,
+          id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+          description: "Range end",
+          expenseDate: "2026-10-20",
+          amount: 30000,
+        },
+        {
+          ...sampleExpense,
+          id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+          description: "After range",
+          expenseDate: "2026-10-21",
+          amount: 40000,
+        },
+      ];
+
+      vi.mocked(getExpenses).mockResolvedValue(expenses);
+
+      const wrapper = mount(App);
+      await flushPromises();
+
+      const customRangeButton = wrapper
+        .findAll("button")
+        .find((button) => button.text().trim() === "Custom range");
+
+      expect(customRangeButton).toBeDefined();
+      await customRangeButton!.trigger("click");
+
+      await wrapper
+        .get('input[aria-label="Start date"]')
+        .setValue("2026-10-10");
+      await wrapper.get('input[aria-label="End date"]').setValue("2026-10-20");
+
+      expect(wrapper.text()).toContain("Range start");
+      expect(wrapper.text()).toContain("Range end");
+      expect(wrapper.text()).not.toContain("Before range");
+      expect(wrapper.text()).not.toContain("After range");
+      expect(wrapper.text().replace(/\s/g, "")).toContain("Rp50.000");
+
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("combines the date range and category filters correctly", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 29, 12));
+
+    try {
+      vi.mocked(getExpenses).mockResolvedValue([
+        {
+          ...sampleExpense,
+          id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          description: "October food",
+          category: "Food & Dining",
+          amount: 35000,
+          expenseDate: "2026-10-15",
+        },
+        {
+          ...sampleExpense,
+          id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          description: "October transport",
+          category: "Transportation",
+          amount: 15000,
+          expenseDate: "2026-10-16",
+        },
+        {
+          ...sampleExpense,
+          id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+          description: "September food",
+          category: "Food & Dining",
+          amount: 50000,
+          expenseDate: "2026-09-20",
+        },
+      ]);
+
+      const wrapper = mount(App);
+      await flushPromises();
+
+      expect(wrapper.text().replace(/\s/g, "")).toContain("Rp50.000");
+
+      const categorySelect = wrapper.find("select");
+      expect(categorySelect.exists()).toBe(true);
+
+      await categorySelect.setValue("Food & Dining");
+
+      expect(wrapper.text()).toContain("October food");
+      expect(wrapper.text()).not.toContain("October transport");
+      expect(wrapper.text()).not.toContain("September food");
+
+      // The period total should not change when only the category filter changes.
+      expect(wrapper.text().replace(/\s/g, "")).toContain("Rp50.000");
+
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows a validation message when the date range is invalid", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 29, 12));
+
+    try {
+      vi.mocked(getExpenses).mockResolvedValue([sampleExpense]);
+
+      const wrapper = mount(App);
+      await flushPromises();
+
+      const customRangeButton = wrapper
+        .findAll("button")
+        .find((button) => button.text().trim() === "Custom range");
+
+      expect(customRangeButton).toBeDefined();
+      await customRangeButton!.trigger("click");
+
+      await wrapper
+        .get('input[aria-label="Start date"]')
+        .setValue("2026-10-25");
+
+      await wrapper.get('input[aria-label="End date"]').setValue("2026-10-10");
+
+      expect(wrapper.get('[role="alert"]').text()).toContain(
+        "Start date must be on or before the end date.",
+      );
+
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

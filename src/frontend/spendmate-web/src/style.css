@@ -1508,3 +1508,75 @@ tbody tr:hover {
     animation-iteration-count: 1 !important;
   }
 }
+
+.date-filter-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.date-filter-presets,
+.date-filter-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.date-filter-inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #68756c;
+  font-size: 12px;
+}
+
+.date-filter-inputs input {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font: inherit;
+}
+
+.date-preset-active {
+  border-color: #3c8c70;
+  background: #eaf4ee;
+  color: #28674f;
+}
+
+.date-filter-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: #b42318;
+  font-size: 13px;
+}
+
+@media (max-width: 600px) {
+  .date-filter-panel,
+  .date-filter-presets,
+  .date-filter-inputs {
+    width: 100%;
+  }
+
+  .date-filter-presets > button {
+    flex: 1;
+  }
+
+  .date-filter-inputs label {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .date-filter-inputs input {
+    width: 100%;
+    min-width: 0;
+  }
+}

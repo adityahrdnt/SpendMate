@@ -23,6 +23,92 @@
 
   const activePage = ref<Page>('Dashboard')
   const selectedFilter = ref('All')
+
+  type DateRangePreset = 'this-month' | 'last-month' | 'custom'
+
+  function toDateInputValue(date: Date): string {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+
+    return `${year}-${month}-${day}`
+  }
+
+  function getMonthStart(date: Date): string {
+    return toDateInputValue(
+      new Date(date.getFullYear(), date.getMonth(), 1),
+    )
+  }
+
+  function getMonthEnd(date: Date): string {
+    return toDateInputValue(
+      new Date(date.getFullYear(), date.getMonth() + 1, 0),
+    )
+  }
+
+  const today = new Date()
+
+  const dateRangePreset = ref<DateRangePreset>('this-month')
+  const startDate = ref(getMonthStart(today))
+  const endDate = ref(toDateInputValue(today))
+
+  const lastMonthStart = getMonthStart(
+    new Date(today.getFullYear(), today.getMonth() - 1, 1),
+  )
+  const lastMonthEnd = getMonthEnd(
+    new Date(today.getFullYear(), today.getMonth() - 1, 1),
+  )
+
+  function selectDateRange(preset: DateRangePreset) {
+    dateRangePreset.value = preset
+
+    if (preset === 'this-month') {
+      const now = new Date()
+      startDate.value = getMonthStart(now)
+      endDate.value = toDateInputValue(now)
+    } else if (preset === 'last-month') {
+      startDate.value = lastMonthStart
+      endDate.value = lastMonthEnd
+    }
+  }
+
+  const isDateRangeValid = computed(() => startDate.value <= endDate.value)
+
+  const currentMonthLabel = computed(() =>
+    new Intl.DateTimeFormat('en-US', {
+      month: 'long',
+      year: 'numeric',
+    }).format(new Date()),
+  )
+
+  const currentDateGreeting = computed(() =>
+    new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    })
+      .format(new Date())
+      .toUpperCase(),
+  )
+
+  const dateRangeActivityLabel = computed(() => {
+    if (dateRangePreset.value === 'this-month') return 'This month'
+    if (dateRangePreset.value === 'last-month') return 'Last month'
+    return 'Selected period'
+  })
+
+
+  const dateFilteredExpenses = computed(() => {
+    if (!isDateRangeValid.value) return []
+
+    return expenses.value.filter(
+      expense =>
+        expense.date >= startDate.value
+        && expense.date <= endDate.value,
+    )
+  })
+
   const isExpenseModalOpen = ref(false)
   const editingExpenseId = ref<string | null>(null)
   const deletingExpenseId = ref<string | null>(null)
@@ -78,7 +164,7 @@
   onMounted(loadExpenses)
 
   const filteredExpenses = computed(() => {
-    const sorted = [...expenses.value].sort(
+    const sorted = [...dateFilteredExpenses.value].sort(
       (a, b) =>
         b.date.localeCompare(a.date)
         || b.createdAtUtc.localeCompare(a.createdAtUtc),
@@ -92,14 +178,17 @@
   })
 
   const totalSpent = computed(() =>
-    expenses.value.reduce((sum, expense) => sum + expense.amount, 0),
+    dateFilteredExpenses.value.reduce(
+      (sum, expense) => sum + expense.amount,
+      0,
+    ),
   )
 
   const categoryTotals = computed(() =>
     categories
       .map(category => ({
         ...category,
-        amount: expenses.value
+        amount: dateFilteredExpenses.value
           .filter(expense => expense.category === category.name)
           .reduce((sum, expense) => sum + expense.amount, 0),
       }))
@@ -304,7 +393,7 @@
           <strong>{{ activePage }}</strong>
         </div>
         <div class="topbar-actions">
-          <span class="current-month">October 2026</span>
+          <span class="current-month">{{ currentMonthLabel }}</span>
           <button class="avatar-small" aria-label="User profile">A</button>
         </div>
       </header>
@@ -323,7 +412,7 @@
           </div>
           <section class="page-heading">
             <div>
-              <div class="greeting">WEDNESDAY, OCTOBER 28, 2026</div>
+              <div class="greeting">{{ currentDateGreeting }}</div>
               <h1>{{ activePage === 'Dashboard' ? 'Your family at a glance' : 'All expenses' }}</h1>
               <p class="subtitle">
                 {{ activePage === 'Dashboard'
@@ -339,6 +428,61 @@
             </button>
           </section>
 
+          <section class="date-filter-panel" aria-label="Filter expenses by date">
+            <div class="date-filter-presets">
+              <button
+                type="button"
+                class="secondary-button"
+                :class="{ 'date-preset-active': dateRangePreset === 'this-month' }"
+                @click="selectDateRange('this-month')"
+              >
+                This month
+              </button>
+
+              <button
+                type="button"
+                class="secondary-button"
+                :class="{ 'date-preset-active': dateRangePreset === 'last-month' }"
+                @click="selectDateRange('last-month')"
+              >
+                Last month
+              </button>
+
+              <button
+                type="button"
+                class="secondary-button"
+                :class="{ 'date-preset-active': dateRangePreset === 'custom' }"
+                @click="selectDateRange('custom')"
+              >
+                Custom range
+              </button>
+            </div>
+
+            <div v-if="dateRangePreset === 'custom'" class="date-filter-inputs">
+              <label>
+                From
+                <input
+                  v-model="startDate"
+                  type="date"
+                  aria-label="Start date"
+                />
+              </label>
+
+              <label>
+                To
+                <input
+                  v-model="endDate"
+                  type="date"
+                  aria-label="End date"
+                />
+              </label>
+            </div>
+
+            <p v-if="!isDateRangeValid" class="date-filter-error" role="alert">
+              Start date must be on or before the end date.
+            </p>
+          </section>
+
           <section v-if="activePage === 'Dashboard'" class="summary-grid">
             <article class="summary-card total-card">
               <div class="card-topline">
@@ -346,7 +490,10 @@
                 <span class="summary-icon green-icon">↗</span>
               </div>
               <div class="summary-amount">{{ formatCurrency(totalSpent) }}</div>
-              <div class="summary-foot"><span class="status-dot"></span> October spending so far</div>
+              <div class="summary-foot">
+                <span class="status-dot"></span>
+                Spending in selected period
+              </div>
               <div class="card-decoration decoration-one"></div>
             </article>
 
@@ -355,8 +502,8 @@
                 <span class="summary-label">Transactions</span>
                 <span class="summary-icon blue-icon">≡</span>
               </div>
-              <div class="summary-amount">{{ expenses.length }}</div>
-              <div class="summary-foot">Recorded this month</div>
+              <div class="summary-amount">{{ dateFilteredExpenses.length }}</div>
+              <div class="summary-foot">Transactions in selected period</div>
             </article>
 
             <article class="summary-card">
@@ -365,7 +512,13 @@
                 <span class="summary-icon amber-icon">◷</span>
               </div>
               <div class="summary-amount">
-                {{ formatCurrency(expenses.length ? Math.round(totalSpent / expenses.length) : 0) }}
+                {{
+                  formatCurrency(
+                    dateFilteredExpenses.length
+                      ? Math.round(totalSpent / dateFilteredExpenses.length)
+                      : 0,
+                  )
+                }}
               </div>
               <div class="summary-foot">Per transaction</div>
             </article>
@@ -425,11 +578,11 @@
                   <h2>Family activity</h2>
                   <p class="panel-subtitle">Who added what</p>
                 </div>
-                <span class="live-label"><span></span> This month</span>
+                <span class="live-label"><span></span> {{ dateRangeActivityLabel }}</span>
               </div>
 
               <div class="activity-list">
-                <div v-for="expense in expenses.slice(0, 4)" :key="expense.id" class="activity-row">
+                <div v-for="expense in dateFilteredExpenses.slice(0, 4)" :key="expense.id" class="activity-row">
                   <div class="activity-avatar" :class="expense.createdBy === 'You' ? 'you-avatar' : 'sarah-avatar'">
                     {{ expense.createdBy === 'You' ? 'A' : 'S' }}
                   </div>
@@ -522,7 +675,9 @@
                     </td>
                   </tr>
                   <tr v-if="filteredExpenses.length === 0">
-                    <td colspan="6" class="empty-table">No expenses found for this category.</td>
+                    <td colspan="6" class="empty-table">
+                      No expenses found for the selected filters.
+                    </td>
                   </tr>
                 </tbody>
               </table>
