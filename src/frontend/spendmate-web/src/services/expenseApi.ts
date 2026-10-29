@@ -16,6 +16,13 @@ export interface CreateExpenseRequest {
   expenseDate: string;
 }
 
+export interface UpdateExpenseRequest {
+  amount: number;
+  category: string;
+  description: string | null;
+  expenseDate: string;
+}
+
 const FAMILY_ID = "22222222-2222-2222-2222-222222222222";
 
 export const DEVELOPMENT_USER_ID = "11111111-1111-1111-1111-111111111111";
@@ -68,4 +75,29 @@ export async function createExpense(
   );
 
   return response.json() as Promise<ExpenseResponse>;
+}
+
+export async function updateExpense(
+  expenseId: string,
+  request: UpdateExpenseRequest,
+): Promise<ExpenseResponse> {
+  const response = await ensureSuccess(
+    await fetch(`${EXPENSES_URL}/${expenseId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+    }),
+  );
+
+  return response.json() as Promise<ExpenseResponse>;
+}
+
+export async function deleteExpense(expenseId: string): Promise<void> {
+  await ensureSuccess(
+    await fetch(`${EXPENSES_URL}/${expenseId}`, {
+      method: "DELETE",
+    }),
+  );
 }

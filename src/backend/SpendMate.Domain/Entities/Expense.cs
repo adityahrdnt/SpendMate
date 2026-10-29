@@ -83,4 +83,52 @@ public class Expense
             ExpenseDate = expenseDate
         };
     }
+
+    public void Update(
+        decimal amount,
+        string category,
+        string? description,
+        DateOnly expenseDate)
+    {
+        if (amount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(amount),
+                "Expense amount must be greater than zero.");
+        }
+
+        if (decimal.Round(amount, 2) != amount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(amount),
+                "Expense amount must have at most two decimal places.");
+        }
+
+        if (string.IsNullOrWhiteSpace(category))
+        {
+            throw new ArgumentException(
+                "Category is required.",
+                nameof(category));
+        }
+
+        if (category.Length > 50)
+        {
+            throw new ArgumentException(
+                "Category must not exceed 50 characters.",
+                nameof(category));
+        }
+
+        if (description?.Length > 500)
+        {
+            throw new ArgumentException(
+                "Description must not exceed 500 characters.",
+                nameof(description));
+        }
+
+        Amount = amount;
+        Category = category;
+        Description = description;
+        ExpenseDate = expenseDate;
+        UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
 }

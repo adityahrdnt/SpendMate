@@ -3,13 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.vue";
 import {
   createExpense,
+  deleteExpense,
   getExpenses,
+  updateExpense,
   DEVELOPMENT_USER_ID,
 } from "./services/expenseApi";
 
 vi.mock("./services/expenseApi", () => ({
   getExpenses: vi.fn(),
   createExpense: vi.fn(),
+  updateExpense: vi.fn(),
+  deleteExpense: vi.fn(),
   DEVELOPMENT_USER_ID: "11111111-1111-1111-1111-111111111111",
 }));
 
@@ -28,6 +32,7 @@ describe("SpendMate dashboard", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(getExpenses).mockResolvedValue([]);
+    vi.mocked(deleteExpense).mockResolvedValue(undefined);
   });
 
   it("displays expenses returned by the API", async () => {
@@ -102,7 +107,7 @@ describe("SpendMate dashboard", () => {
     wrapper.unmount();
   });
 
-  it("keeps the modal open and shows an error when saving fails", async () => {
+  it("keeps the modal open and shows an error when creating an expense fails", async () => {
     vi.mocked(createExpense).mockRejectedValue(new Error("Save failed"));
 
     const wrapper = mount(App);
@@ -128,5 +133,165 @@ describe("SpendMate dashboard", () => {
     expect(createExpense).toHaveBeenCalledOnce();
 
     wrapper.unmount();
+  });
+
+  it("edits an expense and updates the dashboard", async () => {
+    vi.mocked(getExpenses).mockResolvedValue([sampleExpense]);
+
+    const updatedExpense = {
+      ...sampleExpense,
+      amount: 45000,
+      category: "Groceries",
+      description: "Weekly groceries",
+      expenseDate: "2026-10-29",
+    };
+    vi.mocked(updateExpense).mockResolvedValue(updatedExpense);
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    const row = wrapper
+      .findAll("tbody tr")
+      .find((item) => item.text().includes("Lunch"));
+    expect(row).toBeDefined();
+
+    await row!.get("button").trigger("click");
+    expect(wrapper.find('[role="dialog"]').text()).toContain("Edit expense");
+
+    await wrapper
+      .get('input[placeholder="e.g. Weekly groceries"]')
+      .setValue("Weekly groceries");
+    await wrapper.get('input[placeholder="150000"]').setValue("45000");
+    await wrapper.get('[role="dialog"] select').setValue("Groceries");
+    await wrapper.get('input[type="date"]').setValue("2026-10-29");
+
+    await wrapper.get("form.expense-form").trigger("submit");
+    await flushPromises();
+
+    expect(updateExpense).toHaveBeenCalledWith(sampleExpense.id, {
+      amount: 45000,
+      category: "Groceries",
+      description: "Weekly groceries",
+      expenseDate: "2026-10-29",
+    });
+    expect(wrapper.text()).toContain("Weekly groceries");
+    expect(wrapper.text().replace(/\s/g, "")).toContain("Rp45.000");
+    expect(wrapper.text()).not.toContain("Lunch");
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it("keeps the edit modal open and shows an error when updating fails", async () => {
+    vi.mocked(getExpenses).mockResolvedValue([sampleExpense]);
+    vi.mocked(updateExpense).mockRejectedValue(new Error("Update failed"));
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    const row = wrapper
+      .findAll("tbody tr")
+      .find((item) => item.text().includes("Lunch"));
+    expect(row).toBeDefined();
+
+    await row!.get("button").trigger("click");
+    await wrapper
+      .get('input[placeholder="e.g. Weekly groceries"]')
+      .setValue("Updated lunch");
+
+    await wrapper.get("form.expense-form").trigger("submit");
+    await flushPromises();
+
+    expect(updateExpense).toHaveBeenCalledOnce();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("Update failed");
+
+    wrapper.unmount();
+  });
+
+  it("deletes an expense after confirmation", async () => {
+    vi.mocked(getExpenses).mockResolvedValue([sampleExpense]);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    const row = wrapper
+      .findAll("tbody tr")
+      .find((item) => item.text().includes("Lunch"));
+    expect(row).toBeDefined();
+
+    const deleteButton = row!
+      .findAll("button")
+      .find((button) => button.text().includes("Delete"));
+    expect(deleteButton).toBeDefined();
+
+    await deleteButton!.trigger("click");
+    await flushPromises();
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Delete "Lunch"? This action cannot be undone.',
+    );
+    expect(deleteExpense).toHaveBeenCalledWith(sampleExpense.id);
+    expect(wrapper.text()).not.toContain("Lunch");
+
+    wrapper.unmount();
+    confirmSpy.mockRestore();
+  });
+
+  it("does not delete an expense when confirmation is cancelled", async () => {
+    vi.mocked(getExpenses).mockResolvedValue([sampleExpense]);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    const row = wrapper
+      .findAll("tbody tr")
+      .find((item) => item.text().includes("Lunch"));
+    expect(row).toBeDefined();
+
+    const deleteButton = row!
+      .findAll("button")
+      .find((button) => button.text().includes("Delete"));
+    expect(deleteButton).toBeDefined();
+
+    await deleteButton!.trigger("click");
+    await flushPromises();
+
+    expect(deleteExpense).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("Lunch");
+
+    wrapper.unmount();
+    confirmSpy.mockRestore();
+  });
+
+  it("shows an error when deleting an expense fails", async () => {
+    vi.mocked(getExpenses).mockResolvedValue([sampleExpense]);
+    vi.mocked(deleteExpense).mockRejectedValue(new Error("Delete failed"));
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    const row = wrapper
+      .findAll("tbody tr")
+      .find((item) => item.text().includes("Lunch"));
+    expect(row).toBeDefined();
+
+    const deleteButton = row!
+      .findAll("button")
+      .find((button) => button.text().includes("Delete"));
+    expect(deleteButton).toBeDefined();
+
+    await deleteButton!.trigger("click");
+    await flushPromises();
+
+    expect(deleteExpense).toHaveBeenCalledWith(sampleExpense.id);
+    expect(wrapper.text()).toContain("Delete failed");
+    expect(wrapper.text()).toContain("Lunch");
+
+    wrapper.unmount();
+    confirmSpy.mockRestore();
   });
 });
