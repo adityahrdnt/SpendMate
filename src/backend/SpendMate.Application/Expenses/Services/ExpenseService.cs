@@ -46,6 +46,64 @@ public sealed class ExpenseService(
         return ExpenseResponse.FromEntity(savedExpense);
     }
 
+    public async Task<ExpenseResponse> UpdateAsync(
+        Guid familyId,
+        Guid expenseId,
+        UpdateExpenseRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureMembershipAsync(familyId, cancellationToken);
+
+        var expense = await expenseRepository.GetByIdAsync(
+            familyId,
+            expenseId,
+            cancellationToken);
+
+        if (expense is null)
+        {
+            throw new KeyNotFoundException("Expense not found.");
+        }
+
+        expense.Update(
+            request.Amount,
+            request.Category,
+            request.Description,
+            request.ExpenseDate);
+
+        var updatedExpense = await expenseRepository.UpdateAsync(
+            expense,
+            cancellationToken);
+
+        return ExpenseResponse.FromEntity(updatedExpense);
+    }
+
+    public async Task DeleteAsync(
+        Guid familyId,
+        Guid expenseId,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureMembershipAsync(familyId, cancellationToken);
+
+        var expense = await expenseRepository.GetByIdAsync(
+            familyId,
+            expenseId,
+            cancellationToken);
+
+        if (expense is null)
+        {
+            throw new KeyNotFoundException("Expense not found.");
+        }
+
+        var deleted = await expenseRepository.DeleteAsync(
+            expense,
+            cancellationToken);
+
+        if (!deleted)
+        {
+            throw new KeyNotFoundException("Expense not found.");
+        }
+    }
+
     private async Task EnsureMembershipAsync(
         Guid familyId,
         CancellationToken cancellationToken)

@@ -25,10 +25,7 @@ public static class ExpenseEndpoints
             }
             catch (UnauthorizedAccessException)
             {
-                return Results.Problem(
-                    statusCode: StatusCodes.Status403Forbidden,
-                    title: "Access denied",
-                    detail: "You are not a member of this family.");
+                return AccessDenied();
             }
             catch (ArgumentException ex)
             {
@@ -53,10 +50,73 @@ public static class ExpenseEndpoints
             }
             catch (UnauthorizedAccessException)
             {
+                return AccessDenied();
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        group.MapPut("/{expenseId:guid}", async (
+            Guid familyId,
+            Guid expenseId,
+            UpdateExpenseRequest request,
+            ExpenseService expenseService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var expense = await expenseService.UpdateAsync(
+                    familyId,
+                    expenseId,
+                    request,
+                    cancellationToken);
+
+                return Results.Ok(expense);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return AccessDenied();
+            }
+            catch (KeyNotFoundException)
+            {
                 return Results.Problem(
-                statusCode: StatusCodes.Status403Forbidden,
-                title: "Access denied",
-                detail: "You are not a member of this family.");
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "Expense not found",
+                    detail: "The requested expense was not found in this family.");
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        group.MapDelete("/{expenseId:guid}", async (
+            Guid familyId,
+            Guid expenseId,
+            ExpenseService expenseService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await expenseService.DeleteAsync(
+                    familyId,
+                    expenseId,
+                    cancellationToken);
+
+                return Results.NoContent();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return AccessDenied();
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "Expense not found",
+                    detail: "The requested expense was not found in this family.");
             }
             catch (ArgumentException ex)
             {
@@ -65,5 +125,13 @@ public static class ExpenseEndpoints
         });
 
         return app;
+    }
+
+    private static IResult AccessDenied()
+    {
+        return Results.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "Access denied",
+            detail: "You are not a member of this family.");
     }
 }

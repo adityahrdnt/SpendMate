@@ -20,6 +20,17 @@ public sealed class ExpenseRepository(
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<Expense?> GetByIdAsync(
+        Guid familyId,
+        Guid expenseId,
+        CancellationToken cancellationToken = default)
+    {
+        return await dbContext.Expenses
+            .FirstOrDefaultAsync(
+                x => x.FamilyId == familyId && x.Id == expenseId,
+                cancellationToken);
+    }
+
     public async Task<Expense> AddAsync(
         Expense expense,
         CancellationToken cancellationToken = default)
@@ -29,5 +40,26 @@ public sealed class ExpenseRepository(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return expense;
+    }
+
+    public async Task<Expense> UpdateAsync(
+        Expense expense,
+        CancellationToken cancellationToken = default)
+    {
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return expense;
+    }
+
+    public async Task<bool> DeleteAsync(
+        Expense expense,
+        CancellationToken cancellationToken = default)
+    {
+        dbContext.Expenses.Remove(expense);
+
+        var affectedRows = await dbContext.SaveChangesAsync(
+            cancellationToken);
+
+        return affectedRows > 0;
     }
 }
