@@ -2,7 +2,9 @@
   import { computed, onMounted, ref } from 'vue'
   import {
     createExpense as createExpenseApi,
+    deleteExpense as deleteExpenseApi,
     getExpenses,
+    updateExpense as updateExpenseApi,
     DEVELOPMENT_USER_ID,
     type ExpenseResponse,
   } from './services/expenseApi'
@@ -22,6 +24,9 @@
   const activePage = ref<Page>('Dashboard')
   const selectedFilter = ref('All')
   const isExpenseModalOpen = ref(false)
+  const editingExpenseId = ref<string | null>(null)
+  const deletingExpenseId = ref<string | null>(null)
+  const deleteErrorMessage = ref('')
 
   const expenses = ref<Expense[]>([])
   const isLoading = ref(true)
@@ -113,6 +118,30 @@
     date: new Date().toISOString().slice(0, 10),
   })
 
+  function openAddExpenseModal() {
+    editingExpenseId.value = null
+    saveErrorMessage.value = ''
+    newExpense.value = {
+      description: '',
+      category: 'Food & Dining',
+      amount: '',
+      date: new Date().toISOString().slice(0, 10),
+    }
+    isExpenseModalOpen.value = true
+  }
+
+  function openEditExpenseModal(expense: Expense) {
+    editingExpenseId.value = expense.id
+    saveErrorMessage.value = ''
+    newExpense.value = {
+      description: expense.description,
+      category: expense.category,
+      amount: String(expense.amount),
+      date: expense.date,
+    }
+    isExpenseModalOpen.value = true
+  }
+
   function formatCurrency(amount: number) {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -140,7 +169,8 @@
       || !Number.isInteger(amount)
       || !newExpense.value.date
     ) {
-      saveErrorMessage.value = 'Enter a valid description, positive whole amount, and date.'
+      saveErrorMessage.value =
+        'Enter a valid description, positive whole amount, and date.'
       return
     }
 
@@ -148,12 +178,16 @@
     saveErrorMessage.value = ''
 
     try {
-      const savedExpense = await createExpenseApi({
+      const request = {
         amount,
         category: newExpense.value.category,
         description,
         expenseDate: newExpense.value.date,
-      })
+      }
+
+      const savedExpense = editingExpenseId.value
+        ? await updateExpenseApi(editingExpenseId.value, request)
+        : await createExpenseApi(request)
 
       expenses.value = [
         mapExpense(savedExpense),
@@ -167,6 +201,7 @@
         date: new Date().toISOString().slice(0, 10),
       }
 
+      editingExpenseId.value = null
       isExpenseModalOpen.value = false
     } catch (error) {
       saveErrorMessage.value = error instanceof Error
@@ -174,6 +209,31 @@
         : 'Unable to save the expense. Please try again.'
     } finally {
       isSaving.value = false
+    }
+  }
+
+  async function deleteExpense(expense: Expense) {
+    const confirmed = window.confirm(
+      `Delete "${expense.description}"? This action cannot be undone.`,
+    )
+
+    if (!confirmed) return
+
+    deletingExpenseId.value = expense.id
+    deleteErrorMessage.value = ''
+
+    try {
+      await deleteExpenseApi(expense.id)
+
+      expenses.value = expenses.value.filter(
+        item => item.id !== expense.id,
+      )
+    } catch (error) {
+      deleteErrorMessage.value = error instanceof Error
+        ? error.message
+        : 'Unable to delete the expense. Please try again.'
+    } finally {
+      deletingExpenseId.value = null
     }
   }
 </script>
@@ -273,7 +333,7 @@
             </div>
             <button
               class="primary-button"
-              @click="saveErrorMessage = ''; isExpenseModalOpen = true"
+              @click="openAddExpenseModal()"
             >
               <span class="plus-icon">+</span> Add expense
             </button>
@@ -418,6 +478,7 @@
                     <th>DATE</th>
                     <th>ADDED BY</th>
                     <th class="amount-column">AMOUNT</th>
+                    <th>ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -441,12 +502,33 @@
                       </span>
                     </td>
                     <td class="amount-column amount-cell">{{ formatCurrency(expense.amount) }}</td>
+                    <td class="actions-cell">
+                      <button
+                        type="button"
+                        class="secondary-button"
+                        @click="openEditExpenseModal(expense)"
+                      >
+                        Edit
+                      </button>
+
+                      <button
+                        type="button"
+                        class="secondary-button"
+                        :disabled="deletingExpenseId === expense.id"
+                        @click="deleteExpense(expense)"
+                      >
+                        {{ deletingExpenseId === expense.id ? 'Deleting...' : 'Delete' }}
+                      </button>
+                    </td>
                   </tr>
                   <tr v-if="filteredExpenses.length === 0">
-                    <td colspan="5" class="empty-table">No expenses found for this category.</td>
+                    <td colspan="6" class="empty-table">No expenses found for this category.</td>
                   </tr>
                 </tbody>
               </table>
+              <p v-if="deleteErrorMessage" class="empty-state" role="alert">
+                {{ deleteErrorMessage }}
+              </p>
             </div>
           </section>
 
@@ -492,8 +574,14 @@
         <div class="modal-heading">
           <div>
             <span class="greeting">FAMILY FINANCES</span>
-            <h2 id="modal-title">Add an expense</h2>
-            <p>Record a new family transaction.</p>
+            <h2 id="modal-title">
+              {{ editingExpenseId ? 'Edit expense' : 'Add an expense' }}
+            </h2>
+            <p>
+              {{ editingExpenseId
+                ? 'Update the details of this family transaction.'
+                : 'Record a new family transaction.' }}
+            </p>
           </div>
           <button class="close-button" aria-label="Close dialog" @click="isExpenseModalOpen = false">×</button>
         </div>
@@ -523,12 +611,12 @@
           </p>
           <div class="modal-actions">
             <button type="button" class="secondary-button" @click="isExpenseModalOpen = false">Cancel</button>
-            <button
-              type="submit"
-              class="primary-button"
-              :disabled="isSaving"
-            >
-              {{ isSaving ? 'Saving...' : 'Save expense' }}
+            <button type="submit" class="primary-button" :disabled="isSaving">
+              {{ isSaving
+                ? 'Saving...'
+                : editingExpenseId
+                  ? 'Save changes'
+                  : 'Save expense' }}
             </button>
           </div>
         </form>
