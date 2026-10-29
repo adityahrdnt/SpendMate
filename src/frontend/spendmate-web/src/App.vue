@@ -1,118 +1,183 @@
-
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+  import { computed, onMounted, ref } from 'vue'
+  import {
+    createExpense as createExpenseApi,
+    getExpenses,
+    DEVELOPMENT_USER_ID,
+    type ExpenseResponse,
+  } from './services/expenseApi'
 
-type Expense = {
-  id: number
-  description: string
-  category: string
-  amount: number
-  date: string
-  createdBy: string
-}
-
-type Page = 'Dashboard' | 'Expenses' | 'Chat Demo'
-
-const activePage = ref<Page>('Dashboard')
-const selectedFilter = ref('All')
-const isExpenseModalOpen = ref(false)
-
-const expenses = ref<Expense[]>([
-  { id: 1, description: 'Belanja bulanan', category: 'Groceries', amount: 425000, date: '2026-10-28', createdBy: 'You' },
-  { id: 2, description: 'Makan siang keluarga', category: 'Food & Dining', amount: 85000, date: '2026-10-28', createdBy: 'You' },
-  { id: 3, description: 'Bensin mobil', category: 'Transport', amount: 250000, date: '2026-10-27', createdBy: 'Sarah' },
-  { id: 4, description: 'Tagihan internet', category: 'Bills', amount: 350000, date: '2026-10-26', createdBy: 'Sarah' },
-  { id: 5, description: 'Susu dan kebutuhan anak', category: 'Groceries', amount: 178000, date: '2026-10-25', createdBy: 'You' },
-  { id: 6, description: 'Kopi', category: 'Food & Dining', amount: 32000, date: '2026-10-24', createdBy: 'Sarah' },
-])
-
-const categories = [
-  { name: 'Groceries', color: '#3c8c70', icon: '🛒' },
-  { name: 'Food & Dining', color: '#e9a23b', icon: '🍜' },
-  { name: 'Transport', color: '#6587d8', icon: '🚗' },
-  { name: 'Bills', color: '#a47bc2', icon: '🧾' },
-  { name: 'Other', color: '#9ca3af', icon: '📦' },
-]
-
-const filteredExpenses = computed(() => {
-  const sorted = [...expenses.value].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
-  if (selectedFilter.value === 'All') return sorted
-  return sorted.filter(expense => expense.category === selectedFilter.value)
-})
-
-const totalSpent = computed(() =>
-  expenses.value.reduce((sum, expense) => sum + expense.amount, 0),
-)
-
-const categoryTotals = computed(() => {
-  const totals = categories.map(category => ({
-    ...category,
-    amount: expenses.value
-      .filter(expense => expense.category === category.name)
-      .reduce((sum, expense) => sum + expense.amount, 0),
-  }))
-
-  return totals
-    .filter(category => category.amount > 0)
-    .sort((a, b) => b.amount - a.amount)
-})
-
-const largestCategory = computed(() => categoryTotals.value[0]?.name ?? '—')
-
-const newExpense = ref({
-  description: '',
-  category: 'Food & Dining',
-  amount: '',
-  date: new Date().toISOString().slice(0, 10),
-})
-
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
-    maximumFractionDigits: 0,
-  }).format(amount)
-}
-
-function formatDate(date: string) {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(`${date}T12:00:00`))
-}
-
-function addExpense() {
-  const amount = Number(newExpense.value.amount)
-
-  if (
-    !newExpense.value.description.trim()
-    || !Number.isFinite(amount)
-    || amount <= 0
-    || !newExpense.value.date
-  ) {
-    return
+  type Expense = {
+    id: string
+    description: string
+    category: string
+    amount: number
+    date: string
+    createdBy: string
+    createdAtUtc: string
   }
 
-  expenses.value.unshift({
-    id: Math.max(0, ...expenses.value.map(expense => expense.id)) + 1,
-    description: newExpense.value.description.trim(),
-    category: newExpense.value.category,
-    amount,
-    date: newExpense.value.date,
-    createdBy: 'You',
+  type Page = 'Dashboard' | 'Expenses' | 'Chat Demo'
+
+  const activePage = ref<Page>('Dashboard')
+  const selectedFilter = ref('All')
+  const isExpenseModalOpen = ref(false)
+
+  const expenses = ref<Expense[]>([])
+  const isLoading = ref(true)
+  const isSaving = ref(false)
+  const errorMessage = ref('')
+  const saveErrorMessage = ref('')
+
+  const categories = [
+    { name: 'Groceries', color: '#3c8c70', icon: '🛒' },
+    { name: 'Food & Dining', color: '#e9a23b', icon: '🍽️' },
+    { name: 'Transport', color: '#6587d8', icon: '🚗' },
+    { name: 'Bills', color: '#a47bc2', icon: '🧾' },
+    { name: 'Other', color: '#9ca3af', icon: '📦' },
+  ]
+
+  function mapExpense(response: ExpenseResponse): Expense {
+    return {
+      id: response.id,
+      description: response.description ?? '',
+      // Keep compatibility with the existing API data.
+      category: response.category === 'Food'
+        ? 'Food & Dining'
+        : response.category,
+      amount: response.amount,
+      date: response.expenseDate,
+      createdBy: response.createdByUserId === DEVELOPMENT_USER_ID
+        ? 'You'
+        : 'Family member',
+      createdAtUtc: response.createdAtUtc,
+    }
+  }
+
+  async function loadExpenses() {
+    isLoading.value = true
+    errorMessage.value = ''
+
+    try {
+      const response = await getExpenses()
+      expenses.value = response.map(mapExpense)
+    } catch (error) {
+      errorMessage.value = error instanceof Error
+        ? error.message
+        : 'Unable to load expenses. Please try again.'
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  onMounted(loadExpenses)
+
+  const filteredExpenses = computed(() => {
+    const sorted = [...expenses.value].sort(
+      (a, b) =>
+        b.date.localeCompare(a.date)
+        || b.createdAtUtc.localeCompare(a.createdAtUtc),
+    )
+
+    if (selectedFilter.value === 'All') return sorted
+
+    return sorted.filter(
+      expense => expense.category === selectedFilter.value,
+    )
   })
 
-  newExpense.value = {
+  const totalSpent = computed(() =>
+    expenses.value.reduce((sum, expense) => sum + expense.amount, 0),
+  )
+
+  const categoryTotals = computed(() =>
+    categories
+      .map(category => ({
+        ...category,
+        amount: expenses.value
+          .filter(expense => expense.category === category.name)
+          .reduce((sum, expense) => sum + expense.amount, 0),
+      }))
+      .filter(category => category.amount > 0)
+      .sort((a, b) => b.amount - a.amount),
+  )
+
+  const largestCategory = computed(
+    () => categoryTotals.value[0]?.name ?? '—',
+  )
+
+  const newExpense = ref({
     description: '',
     category: 'Food & Dining',
     amount: '',
     date: new Date().toISOString().slice(0, 10),
+  })
+
+  function formatCurrency(amount: number) {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      maximumFractionDigits: 0,
+    }).format(amount)
   }
 
-  isExpenseModalOpen.value = false
-}
+  function formatDate(date: string) {
+    return new Intl.DateTimeFormat('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }).format(new Date(`${date}T12:00:00`))
+  }
+
+  async function addExpense() {
+    const amount = Number(newExpense.value.amount)
+    const description = newExpense.value.description.trim()
+
+    if (
+      !description
+      || !Number.isFinite(amount)
+      || amount <= 0
+      || !Number.isInteger(amount)
+      || !newExpense.value.date
+    ) {
+      saveErrorMessage.value = 'Enter a valid description, positive whole amount, and date.'
+      return
+    }
+
+    isSaving.value = true
+    saveErrorMessage.value = ''
+
+    try {
+      const savedExpense = await createExpenseApi({
+        amount,
+        category: newExpense.value.category,
+        description,
+        expenseDate: newExpense.value.date,
+      })
+
+      expenses.value = [
+        mapExpense(savedExpense),
+        ...expenses.value.filter(expense => expense.id !== savedExpense.id),
+      ]
+
+      newExpense.value = {
+        description: '',
+        category: 'Food & Dining',
+        amount: '',
+        date: new Date().toISOString().slice(0, 10),
+      }
+
+      isExpenseModalOpen.value = false
+    } catch (error) {
+      saveErrorMessage.value = error instanceof Error
+        ? error.message
+        : 'Unable to save the expense. Please try again.'
+    } finally {
+      isSaving.value = false
+    }
+  }
 </script>
+
 
 <template>
   <div class="app-shell">
@@ -186,6 +251,16 @@ function addExpense() {
 
       <div class="page-content">
         <template v-if="activePage !== 'Chat Demo'">
+          <div v-if="isLoading" class="empty-state" role="status">
+            Loading family expenses...
+          </div>
+
+          <div v-else-if="errorMessage" class="empty-state" role="alert">
+            <p>Unable to load expenses: {{ errorMessage }}</p>
+            <button class="secondary-button" @click="loadExpenses">
+              Try again
+            </button>
+          </div>
           <section class="page-heading">
             <div>
               <div class="greeting">WEDNESDAY, OCTOBER 28, 2026</div>
@@ -196,7 +271,10 @@ function addExpense() {
                   : 'Keep track of every expense shared by your family.' }}
               </p>
             </div>
-            <button class="primary-button" @click="isExpenseModalOpen = true">
+            <button
+              class="primary-button"
+              @click="saveErrorMessage = ''; isExpenseModalOpen = true"
+            >
               <span class="plus-icon">+</span> Add expense
             </button>
           </section>
@@ -440,9 +518,18 @@ function addExpense() {
             Expense date
             <input v-model="newExpense.date" required type="date" />
           </label>
+          <p v-if="saveErrorMessage" class="empty-state" role="alert">
+            {{ saveErrorMessage }}
+          </p>
           <div class="modal-actions">
             <button type="button" class="secondary-button" @click="isExpenseModalOpen = false">Cancel</button>
-            <button type="submit" class="primary-button">Save expense</button>
+            <button
+              type="submit"
+              class="primary-button"
+              :disabled="isSaving"
+            >
+              {{ isSaving ? 'Saving...' : 'Save expense' }}
+            </button>
           </div>
         </form>
       </section>
