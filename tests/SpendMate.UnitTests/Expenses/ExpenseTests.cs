@@ -142,4 +142,36 @@ public class ExpenseTests
                 null,
                 new DateOnly(2026, 10, 28)));
     }
+
+    [Fact]
+    public void Create_WithCategoryAtMaximumLength_CreatesExpense()
+    {
+        var category = new string('A', 50);
+
+        var expense = Expense.Create(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            35_000m,
+            category,
+            null,
+            new DateOnly(2026, 10, 28));
+
+        Assert.Equal(category, expense.Category);
+    }
+
+    [Fact]
+    public void Create_WithDescriptionAtMaximumLength_CreatesExpense()
+    {
+        var description = new string('A', 500);
+
+        var expense = Expense.Create(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            35_000m,
+            "Food",
+            description,
+            new DateOnly(2026, 10, 28));
+
+        Assert.Equal(description, expense.Description);
+    }
 }
