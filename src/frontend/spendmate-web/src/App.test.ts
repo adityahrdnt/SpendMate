@@ -498,4 +498,81 @@ describe("SpendMate dashboard", () => {
       vi.useRealTimers();
     }
   });
+
+  it("parses a chat message and displays an expense preview", async () => {
+    const wrapper = mount(App);
+    await flushPromises();
+
+    const chatDemoButton = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Chat Demo"));
+
+    expect(chatDemoButton).toBeDefined();
+    await chatDemoButton!.trigger("click");
+
+    await wrapper
+      .get('input[aria-label="Chat message"]')
+      .setValue("Makan siang 35000");
+
+    await wrapper.get("form.chat-input").trigger("submit");
+
+    expect(wrapper.text()).toContain("Review expense");
+    expect(
+      (wrapper.get('input[type="number"]').element as HTMLInputElement).value,
+    ).toBe("35000");
+    expect(wrapper.text()).toContain("Makan siang");
+    expect(createExpense).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it("saves a chat expense only after confirmation", async () => {
+    const savedExpense = {
+      ...sampleExpense,
+      id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+      amount: 35000,
+      category: "Other",
+      description: "Makan siang",
+      expenseDate: new Date().toLocaleDateString("en-CA"),
+    };
+
+    vi.mocked(createExpense).mockResolvedValue(savedExpense);
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    const chatDemoButton = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Chat Demo"));
+
+    expect(chatDemoButton).toBeDefined();
+    await chatDemoButton!.trigger("click");
+
+    await wrapper
+      .get('input[aria-label="Chat message"]')
+      .setValue("Makan siang 35000");
+    await wrapper.get("form.chat-input").trigger("submit");
+
+    expect(createExpense).not.toHaveBeenCalled();
+
+    await wrapper.get("button.primary-button").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.get('[role="status"]').text()).toContain(
+      "Expense saved: Makan siang",
+    );
+    expect(wrapper.get('[role="status"]').text()).toMatch(/Rp\s*35\.000/);
+
+    expect(createExpense).toHaveBeenCalledWith({
+      amount: 35000,
+      category: "Other",
+      description: "Makan siang",
+      expenseDate: expect.any(String),
+    });
+
+    expect(wrapper.text()).toContain("Makan siang");
+    expect(wrapper.find("form.chat-input").exists()).toBe(true);
+
+    wrapper.unmount();
+  });
 });

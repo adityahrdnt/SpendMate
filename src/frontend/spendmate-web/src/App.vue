@@ -128,6 +128,97 @@
     { name: 'Other', color: '#9ca3af', icon: '📦' },
   ]
 
+  type ChatExpenseDraft = {
+    description: string
+    amount: number
+    category: string
+    date: string
+  }
+
+  const chatMessage = ref('')
+  const chatErrorMessage = ref('')
+  const chatSuccessMessage = ref('')
+  const chatExpenseDraft = ref<ChatExpenseDraft | null>(null)
+  const isSavingChatExpense = ref(false)
+
+  function parseChatExpense(message: string): ChatExpenseDraft | null {
+    const match = message.trim().match(/^(.+?)\s+([\d.,]+)$/)
+
+    if (!match) return null
+
+    const description = match[1].trim()
+    const amountText = match[2].replace(/[.,]/g, '')
+
+    if (!description || !/^\d+$/.test(amountText)) return null
+
+    const amount = Number(amountText)
+
+    if (!Number.isSafeInteger(amount) || amount <= 0) return null
+
+    return {
+      description,
+      amount,
+      category: 'Other',
+      date: toDateInputValue(new Date()),
+    }
+  }
+
+  function submitChatMessage() {
+    chatErrorMessage.value = ''
+    chatSuccessMessage.value = ''
+    chatExpenseDraft.value = null
+
+    const draft = parseChatExpense(chatMessage.value)
+
+    if (!draft) {
+      chatErrorMessage.value =
+        'Enter a description followed by a positive whole amount, e.g. Makan siang 35000.'
+      return
+    }
+
+    chatExpenseDraft.value = draft
+  }
+
+  async function confirmChatExpense() {
+    const draft = chatExpenseDraft.value
+
+    if (
+      !draft
+      || !draft.description.trim()
+      || !Number.isSafeInteger(draft.amount)
+      || draft.amount <= 0
+      || !draft.date
+      || isSavingChatExpense.value
+    ) {
+      chatErrorMessage.value = 'Enter a valid description, positive whole amount, and date.'
+      return
+    }
+
+    isSavingChatExpense.value = true
+    chatErrorMessage.value = ''
+
+    try {
+      const response = await createExpenseApi({
+        description: draft.description.trim(),
+        amount: draft.amount,
+        category: draft.category,
+        expenseDate: draft.date,
+      })
+
+      expenses.value.unshift(mapExpense(response))
+      chatSuccessMessage.value =
+        `Expense saved: ${draft.description.trim()} — ${formatCurrency(draft.amount)}`
+      chatMessage.value = ''
+      chatExpenseDraft.value = null
+    } catch (error) {
+      chatErrorMessage.value = error instanceof Error
+        ? error.message
+        : 'Unable to save the expense. Please try again.'
+    } finally {
+      isSavingChatExpense.value = false
+    }
+  }
+
   function mapExpense(response: ExpenseResponse): Expense {
     return {
       id: response.id,
@@ -710,14 +801,81 @@
             <div class="chat-messages">
               <div class="chat-date">TODAY</div>
               <div class="message assistant-message">
-                Hi! Try typing an expense such as <strong>Makan siang 35000</strong>. This is a UI preview; chat parsing will be implemented in a later step.
+                Hi! Type an expense, for example
+                <strong>Makan siang 35000</strong>.
+                Review the details before saving.
               </div>
-              <div class="message user-message">Belanja bulanan 150000</div>
-              <div class="message assistant-message">Example message received! Expense parsing and confirmation are coming next.</div>
+
+              <div v-if="chatMessage.trim()" class="message user-message">
+                {{ chatMessage }}
+              </div>
+
+              <p v-if="chatErrorMessage" class="empty-state" role="alert">
+                {{ chatErrorMessage }}
+              </p>
+
+              <p v-if="chatSuccessMessage" class="message assistant-message" role="status">
+                {{ chatSuccessMessage }}
+              </p>
+
+              <div v-if="chatExpenseDraft" class="message assistant-message">
+                <strong>Review expense</strong>
+
+                <label>
+                  Description
+                  <input v-model="chatExpenseDraft.description" required maxlength="500" />
+                </label>
+
+                <label>
+                  Amount (IDR)
+                  <input
+                    v-model.number="chatExpenseDraft.amount"
+                    type="number"
+                    min="1"
+                    step="1"
+                    required
+                  />
+                </label>
+
+                <label>
+                  Category
+                  <select v-model="chatExpenseDraft.category" required>
+                    <option
+                      v-for="category in categories"
+                      :key="category.name"
+                      :value="category.name"
+                    >
+                      {{ category.name }}
+                    </option>
+                  </select>
+                </label>
+
+                <label>
+                  Expense date
+                  <input v-model="chatExpenseDraft.date" type="date" required />
+                </label>
+
+                <p>{{ formatCurrency(chatExpenseDraft.amount) }}</p>
+
+                <button
+                  type="button"
+                  class="primary-button"
+                  :disabled="isSavingChatExpense"
+                  @click="confirmChatExpense"
+                >
+                  {{ isSavingChatExpense ? 'Saving...' : 'Confirm and save' }}
+                </button>
+              </div>
             </div>
-            <form class="chat-input" @submit.prevent="activePage = 'Expenses'">
-              <input aria-label="Chat message" placeholder="e.g. Makan siang 35000" />
-              <button type="submit" aria-label="Send message">↑</button>
+
+            <form class="chat-input" @submit.prevent="submitChatMessage">
+              <input
+                v-model="chatMessage"
+                aria-label="Chat message"
+                placeholder="e.g. Makan siang 35000"
+                required
+              />
+              <button type="submit" aria-label="Parse message">↑</button>
             </form>
           </div>
         </section>
