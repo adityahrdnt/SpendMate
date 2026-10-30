@@ -275,8 +275,26 @@
     ),
   )
 
+  const expenseCategories = computed(() => {
+    const knownNames = new Set(categories.map(category => category.name))
+
+    const additionalCategories = [
+      ...new Set(
+        dateFilteredExpenses.value
+          .map(expense => expense.category)
+          .filter(category => !knownNames.has(category)),
+      ),
+    ].map(name => ({
+      name,
+      color: '#9ca3af',
+      icon: '📦',
+    }))
+
+    return [...categories, ...additionalCategories]
+  })
+
   const categoryTotals = computed(() =>
-    categories
+    expenseCategories.value
       .map(category => ({
         ...category,
         amount: dateFilteredExpenses.value
@@ -295,7 +313,7 @@
     description: '',
     category: 'Food & Dining',
     amount: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: toDateInputValue(new Date()),
   })
 
   function openAddExpenseModal() {
@@ -305,7 +323,7 @@
       description: '',
       category: 'Food & Dining',
       amount: '',
-      date: new Date().toISOString().slice(0, 10),
+      date: toDateInputValue(new Date()),
     }
     isExpenseModalOpen.value = true
   }
@@ -378,7 +396,7 @@
         description: '',
         category: 'Food & Dining',
         amount: '',
-        date: new Date().toISOString().slice(0, 10),
+        date: toDateInputValue(new Date()),
       }
 
       editingExpenseId.value = null
@@ -501,287 +519,290 @@
               Try again
             </button>
           </div>
-          <section class="page-heading">
-            <div>
-              <div class="greeting">{{ currentDateGreeting }}</div>
-              <h1>{{ activePage === 'Dashboard' ? 'Your family at a glance' : 'All expenses' }}</h1>
-              <p class="subtitle">
-                {{ activePage === 'Dashboard'
-                  ? 'A clearer picture of your money, together.'
-                  : 'Keep track of every expense shared by your family.' }}
-              </p>
-            </div>
-            <button
-              class="primary-button"
-              @click="openAddExpenseModal()"
-            >
-              <span class="plus-icon">+</span> Add expense
-            </button>
-          </section>
 
-          <section class="date-filter-panel" aria-label="Filter expenses by date">
-            <div class="date-filter-presets">
-              <button
-                type="button"
-                class="secondary-button"
-                :class="{ 'date-preset-active': dateRangePreset === 'this-month' }"
-                @click="selectDateRange('this-month')"
-              >
-                This month
-              </button>
-
-              <button
-                type="button"
-                class="secondary-button"
-                :class="{ 'date-preset-active': dateRangePreset === 'last-month' }"
-                @click="selectDateRange('last-month')"
-              >
-                Last month
-              </button>
-
-              <button
-                type="button"
-                class="secondary-button"
-                :class="{ 'date-preset-active': dateRangePreset === 'custom' }"
-                @click="selectDateRange('custom')"
-              >
-                Custom range
-              </button>
-            </div>
-
-            <div v-if="dateRangePreset === 'custom'" class="date-filter-inputs">
-              <label>
-                From
-                <input
-                  v-model="startDate"
-                  type="date"
-                  aria-label="Start date"
-                />
-              </label>
-
-              <label>
-                To
-                <input
-                  v-model="endDate"
-                  type="date"
-                  aria-label="End date"
-                />
-              </label>
-            </div>
-
-            <p v-if="!isDateRangeValid" class="date-filter-error" role="alert">
-              Start date must be on or before the end date.
-            </p>
-          </section>
-
-          <section v-if="activePage === 'Dashboard'" class="summary-grid">
-            <article class="summary-card total-card">
-              <div class="card-topline">
-                <span class="summary-label">Total expenses</span>
-                <span class="summary-icon green-icon">↗</span>
-              </div>
-              <div class="summary-amount">{{ formatCurrency(totalSpent) }}</div>
-              <div class="summary-foot">
-                <span class="status-dot"></span>
-                Spending in selected period
-              </div>
-              <div class="card-decoration decoration-one"></div>
-            </article>
-
-            <article class="summary-card">
-              <div class="card-topline">
-                <span class="summary-label">Transactions</span>
-                <span class="summary-icon blue-icon">≡</span>
-              </div>
-              <div class="summary-amount">{{ dateFilteredExpenses.length }}</div>
-              <div class="summary-foot">Transactions in selected period</div>
-            </article>
-
-            <article class="summary-card">
-              <div class="card-topline">
-                <span class="summary-label">Average expense</span>
-                <span class="summary-icon amber-icon">◷</span>
-              </div>
-              <div class="summary-amount">
-                {{
-                  formatCurrency(
-                    dateFilteredExpenses.length
-                      ? Math.round(totalSpent / dateFilteredExpenses.length)
-                      : 0,
-                  )
-                }}
-              </div>
-              <div class="summary-foot">Per transaction</div>
-            </article>
-
-            <article class="summary-card">
-              <div class="card-topline">
-                <span class="summary-label">Top category</span>
-                <span class="summary-icon purple-icon">◇</span>
-              </div>
-              <div class="summary-amount category-highlight">{{ largestCategory }}</div>
-              <div class="summary-foot">By total spending</div>
-            </article>
-          </section>
-
-          <section v-if="activePage === 'Dashboard'" class="content-grid">
-            <article class="panel category-panel">
-              <div class="panel-heading">
-                <div>
-                  <h2>Spending by category</h2>
-                  <p class="panel-subtitle">Where your money goes</p>
-                </div>
-                <button class="text-button" @click="activePage = 'Expenses'">View all <span>→</span></button>
-              </div>
-
-              <div v-if="categoryTotals.length" class="category-list">
-                <div v-for="category in categoryTotals" :key="category.name" class="category-row">
-                  <div class="category-icon" :style="{ backgroundColor: `${category.color}18` }">
-                    {{ category.icon }}
-                  </div>
-                  <div class="category-info">
-                    <div class="category-label-row">
-                      <span class="category-name">{{ category.name }}</span>
-                      <strong>{{ formatCurrency(category.amount) }}</strong>
-                    </div>
-                    <div class="progress-track">
-                      <div
-                        class="progress-bar"
-                        :style="{
-                          width: `${totalSpent ? category.amount / totalSpent * 100 : 0}%`,
-                          backgroundColor: category.color,
-                        }"
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <p v-else class="empty-state">Add an expense to see your category breakdown.</p>
-              <div class="category-total">
-                <span>Total across categories</span>
-                <strong>{{ formatCurrency(totalSpent) }}</strong>
-              </div>
-            </article>
-
-            <article class="panel activity-panel">
-              <div class="panel-heading">
-                <div>
-                  <h2>Family activity</h2>
-                  <p class="panel-subtitle">Who added what</p>
-                </div>
-                <span class="live-label"><span></span> {{ dateRangeActivityLabel }}</span>
-              </div>
-
-              <div class="activity-list">
-                <div v-for="expense in dateFilteredExpenses.slice(0, 4)" :key="expense.id" class="activity-row">
-                  <div class="activity-avatar" :class="expense.createdBy === 'You' ? 'you-avatar' : 'sarah-avatar'">
-                    {{ expense.createdBy === 'You' ? 'A' : 'S' }}
-                  </div>
-                  <div class="activity-info">
-                    <strong>{{ expense.createdBy }}</strong>
-                    <span>added {{ expense.description.toLowerCase() }}</span>
-                    <small>{{ formatDate(expense.date) }}</small>
-                  </div>
-                  <strong class="activity-amount">{{ formatCurrency(expense.amount) }}</strong>
-                </div>
-              </div>
-              <div class="activity-footer">
-                <span class="member-indicator"></span>
-                <span>2 family members contributing</span>
-              </div>
-            </article>
-          </section>
-
-          <section class="panel transactions-panel">
-            <div class="panel-heading transaction-heading">
+          <template v-else>
+            <section class="page-heading">
               <div>
-                <h2>{{ activePage === 'Dashboard' ? 'Recent transactions' : 'Expense history' }}</h2>
-                <p class="panel-subtitle">
-                  {{ activePage === 'Dashboard' ? 'Your latest family expenses' : `${filteredExpenses.length} transaction(s)` }}
+                <div class="greeting">{{ currentDateGreeting }}</div>
+                <h1>{{ activePage === 'Dashboard' ? 'Your family at a glance' : 'All expenses' }}</h1>
+                <p class="subtitle">
+                  {{ activePage === 'Dashboard'
+                    ? 'A clearer picture of your money, together.'
+                    : 'Keep track of every expense shared by your family.' }}
                 </p>
               </div>
-              <div class="transaction-actions">
-                <select v-model="selectedFilter" aria-label="Filter by category" class="filter-select">
-                  <option>All</option>
-                  <option v-for="category in categories" :key="category.name" :value="category.name">
-                    {{ category.name }}
-                  </option>
-                </select>
-                <button v-if="activePage === 'Dashboard'" class="text-button desktop-only" @click="activePage = 'Expenses'">
-                  View all <span>→</span>
+              <button
+                class="primary-button"
+                @click="openAddExpenseModal()"
+              >
+                <span class="plus-icon">+</span> Add expense
+              </button>
+            </section>
+
+            <section class="date-filter-panel" aria-label="Filter expenses by date">
+              <div class="date-filter-presets">
+                <button
+                  type="button"
+                  class="secondary-button"
+                  :class="{ 'date-preset-active': dateRangePreset === 'this-month' }"
+                  @click="selectDateRange('this-month')"
+                >
+                  This month
+                </button>
+
+                <button
+                  type="button"
+                  class="secondary-button"
+                  :class="{ 'date-preset-active': dateRangePreset === 'last-month' }"
+                  @click="selectDateRange('last-month')"
+                >
+                  Last month
+                </button>
+
+                <button
+                  type="button"
+                  class="secondary-button"
+                  :class="{ 'date-preset-active': dateRangePreset === 'custom' }"
+                  @click="selectDateRange('custom')"
+                >
+                  Custom range
                 </button>
               </div>
-            </div>
 
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>DESCRIPTION</th>
-                    <th>CATEGORY</th>
-                    <th>DATE</th>
-                    <th>ADDED BY</th>
-                    <th class="amount-column">AMOUNT</th>
-                    <th>ACTIONS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="expense in (activePage === 'Dashboard' ? filteredExpenses.slice(0, 5) : filteredExpenses)" :key="expense.id">
-                    <td>
-                      <div class="expense-description">
-                        <span class="expense-bullet" :class="{ 'bullet-food': expense.category === 'Food & Dining' }">
-                          {{ categories.find(category => category.name === expense.category)?.icon ?? '📦' }}
-                        </span>
-                        <strong>{{ expense.description }}</strong>
-                      </div>
-                    </td>
-                    <td><span class="category-pill">{{ expense.category }}</span></td>
-                    <td class="date-cell">{{ formatDate(expense.date) }}</td>
-                    <td>
-                      <span class="added-by">
-                        <span class="mini-avatar" :class="expense.createdBy === 'You' ? 'you-avatar' : 'sarah-avatar'">
-                          {{ expense.createdBy === 'You' ? 'A' : 'S' }}
-                        </span>
-                        {{ expense.createdBy }}
-                      </span>
-                    </td>
-                    <td class="amount-column amount-cell">{{ formatCurrency(expense.amount) }}</td>
-                    <td class="actions-cell">
-                      <button
-                        type="button"
-                        class="secondary-button"
-                        @click="openEditExpenseModal(expense)"
-                      >
-                        Edit
-                      </button>
+              <div v-if="dateRangePreset === 'custom'" class="date-filter-inputs">
+                <label>
+                  From
+                  <input
+                    v-model="startDate"
+                    type="date"
+                    aria-label="Start date"
+                  />
+                </label>
 
-                      <button
-                        type="button"
-                        class="secondary-button"
-                        :disabled="deletingExpenseId === expense.id"
-                        @click="deleteExpense(expense)"
-                      >
-                        {{ deletingExpenseId === expense.id ? 'Deleting...' : 'Delete' }}
-                      </button>
-                    </td>
-                  </tr>
-                  <tr v-if="filteredExpenses.length === 0">
-                    <td colspan="6" class="empty-table">
-                      No expenses found for the selected filters.
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-              <p v-if="deleteErrorMessage" class="empty-state" role="alert">
-                {{ deleteErrorMessage }}
+                <label>
+                  To
+                  <input
+                    v-model="endDate"
+                    type="date"
+                    aria-label="End date"
+                  />
+                </label>
+              </div>
+
+              <p v-if="!isDateRangeValid" class="date-filter-error" role="alert">
+                Start date must be on or before the end date.
               </p>
-            </div>
-          </section>
+            </section>
 
-          <footer class="page-footer">
-            <span>Made for the things that matter.</span>
-            <span>SpendMate <span class="footer-dot">•</span> MVP preview</span>
-          </footer>
+            <section v-if="activePage === 'Dashboard'" class="summary-grid">
+              <article class="summary-card total-card">
+                <div class="card-topline">
+                  <span class="summary-label">Total expenses</span>
+                  <span class="summary-icon green-icon">↗</span>
+                </div>
+                <div class="summary-amount">{{ formatCurrency(totalSpent) }}</div>
+                <div class="summary-foot">
+                  <span class="status-dot"></span>
+                  Spending in selected period
+                </div>
+                <div class="card-decoration decoration-one"></div>
+              </article>
+
+              <article class="summary-card">
+                <div class="card-topline">
+                  <span class="summary-label">Transactions</span>
+                  <span class="summary-icon blue-icon">≡</span>
+                </div>
+                <div class="summary-amount">{{ dateFilteredExpenses.length }}</div>
+                <div class="summary-foot">Transactions in selected period</div>
+              </article>
+
+              <article class="summary-card">
+                <div class="card-topline">
+                  <span class="summary-label">Average expense</span>
+                  <span class="summary-icon amber-icon">◷</span>
+                </div>
+                <div class="summary-amount">
+                  {{
+                    formatCurrency(
+                      dateFilteredExpenses.length
+                        ? Math.round(totalSpent / dateFilteredExpenses.length)
+                        : 0,
+                    )
+                  }}
+                </div>
+                <div class="summary-foot">Per transaction</div>
+              </article>
+
+              <article class="summary-card">
+                <div class="card-topline">
+                  <span class="summary-label">Top category</span>
+                  <span class="summary-icon purple-icon">◇</span>
+                </div>
+                <div class="summary-amount category-highlight">{{ largestCategory }}</div>
+                <div class="summary-foot">By total spending</div>
+              </article>
+            </section>
+
+            <section v-if="activePage === 'Dashboard'" class="content-grid">
+              <article class="panel category-panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Spending by category</h2>
+                    <p class="panel-subtitle">Where your money goes</p>
+                  </div>
+                  <button class="text-button" @click="activePage = 'Expenses'">View all <span>→</span></button>
+                </div>
+
+                <div v-if="categoryTotals.length" class="category-list">
+                  <div v-for="category in categoryTotals" :key="category.name" class="category-row">
+                    <div class="category-icon" :style="{ backgroundColor: `${category.color}18` }">
+                      {{ category.icon }}
+                    </div>
+                    <div class="category-info">
+                      <div class="category-label-row">
+                        <span class="category-name">{{ category.name }}</span>
+                        <strong>{{ formatCurrency(category.amount) }}</strong>
+                      </div>
+                      <div class="progress-track">
+                        <div
+                          class="progress-bar"
+                          :style="{
+                            width: `${totalSpent ? category.amount / totalSpent * 100 : 0}%`,
+                            backgroundColor: category.color,
+                          }"
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <p v-else class="empty-state">Add an expense to see your category breakdown.</p>
+                <div class="category-total">
+                  <span>Total across categories</span>
+                  <strong>{{ formatCurrency(totalSpent) }}</strong>
+                </div>
+              </article>
+
+              <article class="panel activity-panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Family activity</h2>
+                    <p class="panel-subtitle">Who added what</p>
+                  </div>
+                  <span class="live-label"><span></span> {{ dateRangeActivityLabel }}</span>
+                </div>
+
+                <div class="activity-list">
+                  <div v-for="expense in dateFilteredExpenses.slice(0, 4)" :key="expense.id" class="activity-row">
+                    <div class="activity-avatar" :class="expense.createdBy === 'You' ? 'you-avatar' : 'sarah-avatar'">
+                      {{ expense.createdBy === 'You' ? 'A' : 'S' }}
+                    </div>
+                    <div class="activity-info">
+                      <strong>{{ expense.createdBy }}</strong>
+                      <span>added {{ expense.description.toLowerCase() }}</span>
+                      <small>{{ formatDate(expense.date) }}</small>
+                    </div>
+                    <strong class="activity-amount">{{ formatCurrency(expense.amount) }}</strong>
+                  </div>
+                </div>
+                <div class="activity-footer">
+                  <span class="member-indicator"></span>
+                  <span>2 family members contributing</span>
+                </div>
+              </article>
+            </section>
+
+            <section class="panel transactions-panel">
+              <div class="panel-heading transaction-heading">
+                <div>
+                  <h2>{{ activePage === 'Dashboard' ? 'Recent transactions' : 'Expense history' }}</h2>
+                  <p class="panel-subtitle">
+                    {{ activePage === 'Dashboard' ? 'Your latest family expenses' : `${filteredExpenses.length} transaction(s)` }}
+                  </p>
+                </div>
+                <div class="transaction-actions">
+                  <select v-model="selectedFilter" aria-label="Filter by category" class="filter-select">
+                    <option>All</option>
+                    <option v-for="category in expenseCategories" :key="category.name" :value="category.name">
+                      {{ category.name }}
+                    </option>
+                  </select>
+                  <button v-if="activePage === 'Dashboard'" class="text-button desktop-only" @click="activePage = 'Expenses'">
+                    View all <span>→</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>DESCRIPTION</th>
+                      <th>CATEGORY</th>
+                      <th>DATE</th>
+                      <th>ADDED BY</th>
+                      <th class="amount-column">AMOUNT</th>
+                      <th>ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="expense in (activePage === 'Dashboard' ? filteredExpenses.slice(0, 5) : filteredExpenses)" :key="expense.id">
+                      <td>
+                        <div class="expense-description">
+                          <span class="expense-bullet" :class="{ 'bullet-food': expense.category === 'Food & Dining' }">
+                            {{ categories.find(category => category.name === expense.category)?.icon ?? '📦' }}
+                          </span>
+                          <strong>{{ expense.description }}</strong>
+                        </div>
+                      </td>
+                      <td><span class="category-pill">{{ expense.category }}</span></td>
+                      <td class="date-cell">{{ formatDate(expense.date) }}</td>
+                      <td>
+                        <span class="added-by">
+                          <span class="mini-avatar" :class="expense.createdBy === 'You' ? 'you-avatar' : 'sarah-avatar'">
+                            {{ expense.createdBy === 'You' ? 'A' : 'S' }}
+                          </span>
+                          {{ expense.createdBy }}
+                        </span>
+                      </td>
+                      <td class="amount-column amount-cell">{{ formatCurrency(expense.amount) }}</td>
+                      <td class="actions-cell">
+                        <button
+                          type="button"
+                          class="secondary-button"
+                          @click="openEditExpenseModal(expense)"
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          class="secondary-button"
+                          :disabled="deletingExpenseId === expense.id"
+                          @click="deleteExpense(expense)"
+                        >
+                          {{ deletingExpenseId === expense.id ? 'Deleting...' : 'Delete' }}
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="filteredExpenses.length === 0">
+                      <td colspan="6" class="empty-table">
+                        No expenses found for the selected filters.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p v-if="deleteErrorMessage" class="empty-state" role="alert">
+                  {{ deleteErrorMessage }}
+                </p>
+              </div>
+            </section>
+
+            <footer class="page-footer">
+              <span>Made for the things that matter.</span>
+              <span>SpendMate <span class="footer-dot">•</span> MVP preview</span>
+            </footer>
+          </template>
         </template>
 
         <section v-else class="chat-demo-page">
