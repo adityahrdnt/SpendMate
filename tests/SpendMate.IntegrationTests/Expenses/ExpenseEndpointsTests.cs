@@ -284,6 +284,109 @@ public sealed class ExpenseEndpointsTests(
     }
 
     [Fact]
+    public async Task UpdateExpense_WhenExpenseBelongsToAnotherFamily_ReturnsNotFound()
+    {
+        // Arrange
+        var expenseFamilyId = SpendMateApiFactory.CrossFamilyId;
+        var requestedFamilyId = SpendMateApiFactory.TestFamilyId;
+
+        var createResponse = await _client.PostAsJsonAsync(
+            $"/api/families/{expenseFamilyId}/expenses",
+            new CreateExpenseRequest(
+                Amount: 25000m,
+                Category: "Food",
+                Description: "Cross-family test expense",
+                ExpenseDate: new DateOnly(2026, 10, 28)));
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var createdExpense =
+            await createResponse.Content.ReadFromJsonAsync<ExpenseResponse>();
+
+        Assert.NotNull(createdExpense);
+
+        // Act: access the expense through a different family route.
+        var response = await _client.PutAsJsonAsync(
+            $"/api/families/{requestedFamilyId}/expenses/{createdExpense.Id}",
+            new UpdateExpenseRequest(
+                Amount: 40000m,
+                Category: "Transport",
+                Description: "Should not be updated",
+                ExpenseDate: new DateOnly(2026, 10, 29)));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+
+        // Verify the original expense remains unchanged.
+        var getResponse = await _client.GetAsync(
+            $"/api/families/{expenseFamilyId}/expenses");
+
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+
+        var expenses =
+            await getResponse.Content.ReadFromJsonAsync<List<ExpenseResponse>>();
+
+        Assert.NotNull(expenses);
+
+        var persistedExpense = Assert.Single(
+            expenses,
+            expense => expense.Id == createdExpense.Id);
+
+        Assert.Equal(25000m, persistedExpense.Amount);
+        Assert.Equal("Food", persistedExpense.Category);
+        Assert.Equal("Cross-family test expense", persistedExpense.Description);
+    }
+
+    [Fact]
+    public async Task DeleteExpense_WhenExpenseBelongsToAnotherFamily_ReturnsNotFound()
+    {
+        // Arrange
+        var expenseFamilyId = SpendMateApiFactory.CrossFamilyId;
+        var requestedFamilyId = SpendMateApiFactory.TestFamilyId;
+
+        var createResponse = await _client.PostAsJsonAsync(
+            $"/api/families/{expenseFamilyId}/expenses",
+            new CreateExpenseRequest(
+                Amount: 25000m,
+                Category: "Food",
+                Description: "Cross-family delete test expense",
+                ExpenseDate: new DateOnly(2026, 10, 28)));
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var createdExpense =
+            await createResponse.Content.ReadFromJsonAsync<ExpenseResponse>();
+
+        Assert.NotNull(createdExpense);
+
+        // Act: attempt deletion through another family route.
+        var response = await _client.DeleteAsync(
+            $"/api/families/{requestedFamilyId}/expenses/{createdExpense.Id}");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+
+        // Verify the original expense still exists.
+        var getResponse = await _client.GetAsync(
+            $"/api/families/{expenseFamilyId}/expenses");
+
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+
+        var expenses =
+            await getResponse.Content.ReadFromJsonAsync<List<ExpenseResponse>>();
+
+        Assert.NotNull(expenses);
+
+        var persistedExpense = Assert.Single(
+            expenses,
+            expense => expense.Id == createdExpense.Id);
+
+        Assert.Equal(25000m, persistedExpense.Amount);
+        Assert.Equal("Food", persistedExpense.Category);
+        Assert.Equal("Cross-family delete test expense", persistedExpense.Description);
+    }
+
+    [Fact]
     public async Task DeleteExpense_AsFamilyMember_ReturnsNoContentAndRemovesExpense()
     {
         // Arrange
