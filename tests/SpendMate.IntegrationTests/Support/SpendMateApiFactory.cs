@@ -33,6 +33,9 @@ public sealed class SpendMateApiFactory
     public static readonly Guid NonMemberFamilyId =
         Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
+    public static readonly Guid CrossFamilyId =
+        Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -94,11 +97,23 @@ public sealed class SpendMateApiFactory
             {
                 Id = NonMemberFamilyId,
                 Name = "Non-member Test Family"
+            },
+            new Family
+            {
+                Id = CrossFamilyId,
+                Name = "Cross-family Test Family"
             });
 
         dbContext.FamilyMemberships.Add(new FamilyMembership
         {
             FamilyId = TestFamilyId,
+            UserId = TestUserId,
+            Role = FamilyRole.Owner
+        });
+
+        dbContext.FamilyMemberships.Add(new FamilyMembership
+        {
+            FamilyId = CrossFamilyId,
             UserId = TestUserId,
             Role = FamilyRole.Owner
         });
