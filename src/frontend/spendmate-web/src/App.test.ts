@@ -30,6 +30,10 @@ const sampleExpense = {
 
 describe("SpendMate dashboard", () => {
   beforeEach(() => {
+    vi.useRealTimers();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 29, 12));
+
     vi.resetAllMocks();
     vi.mocked(getExpenses).mockResolvedValue([]);
     vi.mocked(deleteExpense).mockResolvedValue(undefined);
@@ -653,6 +657,19 @@ describe("SpendMate dashboard", () => {
         .get('input[aria-label="Start date"]')
         .setValue("2026-10-10");
       await wrapper.get('input[aria-label="End date"]').setValue("2026-10-20");
+
+      // Dashboard summary for the selected custom range.
+      const summaryCards = wrapper.findAll(".summary-card");
+
+      expect(summaryCards[0].text().replace(/\s/g, "")).toContain("Rp50.000");
+      expect(summaryCards[1].text()).toContain("2");
+      expect(summaryCards[2].text().replace(/\s/g, "")).toContain("Rp25.000");
+
+      // Category breakdown for the selected custom range.
+      const categoryRows = wrapper.findAll(".category-row");
+
+      expect(categoryRows).toHaveLength(1);
+      expect(categoryRows[0].text().replace(/\s/g, "")).toContain("Rp50.000");
 
       expect(wrapper.text()).toContain("Range start");
       expect(wrapper.text()).toContain("Range end");
