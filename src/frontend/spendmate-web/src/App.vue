@@ -1,78 +1,38 @@
 <script setup lang="ts">
-  import { computed, onMounted, ref } from 'vue'
   import {
-    createExpense as createExpenseApi,
-    deleteExpense as deleteExpenseApi,
-    getExpenses,
-    updateExpense as updateExpenseApi,
-    DEVELOPMENT_USER_ID,
-    type ExpenseResponse,
-  } from './services/expenseApi'
-
-  type Expense = {
-    id: string
-    description: string
-    category: string
-    amount: number
-    date: string
-    createdBy: string
-    createdAtUtc: string
-  }
+    toDateInputValue,
+    useDateRange,
+  } from './composables/useDateRange'
+  import type { Expense } from './types/expense'
+  import { useExpenses } from './composables/useExpenses'
+  import { formatCurrency, formatDate } from './utils/formatters'
+  import { computed, onMounted, ref } from 'vue'
 
   type Page = 'Dashboard' | 'Expenses' | 'Chat Demo'
 
   const activePage = ref<Page>('Dashboard')
   const selectedFilter = ref('All')
 
-  type DateRangePreset = 'this-month' | 'last-month' | 'custom'
+  const {
+    expenses,
+    isLoading,
+    errorMessage,
+    isSaving,
+    saveErrorMessage,
+    deletingExpenseId,
+    deleteErrorMessage,
+    loadExpenses,
+    saveExpense,
+    removeExpense,
+  } = useExpenses()
 
-  function toDateInputValue(date: Date): string {
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-
-    return `${year}-${month}-${day}`
-  }
-
-  function getMonthStart(date: Date): string {
-    return toDateInputValue(
-      new Date(date.getFullYear(), date.getMonth(), 1),
-    )
-  }
-
-  function getMonthEnd(date: Date): string {
-    return toDateInputValue(
-      new Date(date.getFullYear(), date.getMonth() + 1, 0),
-    )
-  }
-
-  const today = new Date()
-
-  const dateRangePreset = ref<DateRangePreset>('this-month')
-  const startDate = ref(getMonthStart(today))
-  const endDate = ref(toDateInputValue(today))
-
-  const lastMonthStart = getMonthStart(
-    new Date(today.getFullYear(), today.getMonth() - 1, 1),
-  )
-  const lastMonthEnd = getMonthEnd(
-    new Date(today.getFullYear(), today.getMonth() - 1, 1),
-  )
-
-  function selectDateRange(preset: DateRangePreset) {
-    dateRangePreset.value = preset
-
-    if (preset === 'this-month') {
-      const now = new Date()
-      startDate.value = getMonthStart(now)
-      endDate.value = toDateInputValue(now)
-    } else if (preset === 'last-month') {
-      startDate.value = lastMonthStart
-      endDate.value = lastMonthEnd
-    }
-  }
-
-  const isDateRangeValid = computed(() => startDate.value <= endDate.value)
+  const {
+    dateRangePreset,
+    startDate,
+    endDate,
+    selectDateRange,
+    isDateRangeValid,
+  } = useDateRange()
 
   const currentMonthLabel = computed(() =>
     new Intl.DateTimeFormat('en-US', {
@@ -98,7 +58,6 @@
     return 'Selected period'
   })
 
-
   const dateFilteredExpenses = computed(() => {
     if (!isDateRangeValid.value) return []
 
@@ -111,14 +70,6 @@
 
   const isExpenseModalOpen = ref(false)
   const editingExpenseId = ref<string | null>(null)
-  const deletingExpenseId = ref<string | null>(null)
-  const deleteErrorMessage = ref('')
-
-  const expenses = ref<Expense[]>([])
-  const isLoading = ref(true)
-  const isSaving = ref(false)
-  const errorMessage = ref('')
-  const saveErrorMessage = ref('')
 
   const categories = [
     { name: 'Groceries', color: '#3c8c70', icon: '🛒' },
@@ -190,7 +141,8 @@
       || !draft.date
       || isSavingChatExpense.value
     ) {
-      chatErrorMessage.value = 'Enter a valid description, positive whole amount, and date.'
+      chatErrorMessage.value =
+        'Enter a valid description, positive whole amount, and date.'
       return
     }
 
@@ -198,61 +150,32 @@
     chatErrorMessage.value = ''
 
     try {
-      const response = await createExpenseApi({
+      const savedExpense = await saveExpense({
         description: draft.description.trim(),
         amount: draft.amount,
         category: draft.category,
         expenseDate: draft.date,
       })
 
-      expenses.value.unshift(mapExpense(response))
+      if (!savedExpense) {
+        chatErrorMessage.value =
+          saveErrorMessage.value || 'Unable to save the expense. Please try again.'
+        return
+      }
+
       chatSuccessMessage.value =
         `Expense saved: ${draft.description.trim()} — ${formatCurrency(draft.amount)}`
+
       chatMessage.value = ''
       chatExpenseDraft.value = null
-    } catch (error) {
-      chatErrorMessage.value = error instanceof Error
-        ? error.message
-        : 'Unable to save the expense. Please try again.'
     } finally {
       isSavingChatExpense.value = false
     }
   }
 
-  function mapExpense(response: ExpenseResponse): Expense {
-    return {
-      id: response.id,
-      description: response.description ?? '',
-      // Keep compatibility with the existing API data.
-      category: response.category === 'Food'
-        ? 'Food & Dining'
-        : response.category,
-      amount: response.amount,
-      date: response.expenseDate,
-      createdBy: response.createdByUserId === DEVELOPMENT_USER_ID
-        ? 'You'
-        : 'Family member',
-      createdAtUtc: response.createdAtUtc,
-    }
-  }
-
-  async function loadExpenses() {
-    isLoading.value = true
-    errorMessage.value = ''
-
-    try {
-      const response = await getExpenses()
-      expenses.value = response.map(mapExpense)
-    } catch (error) {
-      errorMessage.value = error instanceof Error
-        ? error.message
-        : 'Unable to load expenses. Please try again.'
-    } finally {
-      isLoading.value = false
-    }
-  }
-
-  onMounted(loadExpenses)
+  onMounted(() => {
+    loadExpenses()
+  })
 
   const filteredExpenses = computed(() => {
     const sorted = [...dateFilteredExpenses.value].sort(
@@ -340,22 +263,6 @@
     isExpenseModalOpen.value = true
   }
 
-  function formatCurrency(amount: number) {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      maximumFractionDigits: 0,
-    }).format(amount)
-  }
-
-  function formatDate(date: string) {
-    return new Intl.DateTimeFormat('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    }).format(new Date(`${date}T12:00:00`))
-  }
-
   async function addExpense() {
     const amount = Number(newExpense.value.amount)
     const description = newExpense.value.description.trim()
@@ -372,42 +279,29 @@
       return
     }
 
-    isSaving.value = true
-    saveErrorMessage.value = ''
-
-    try {
-      const request = {
-        amount,
-        category: newExpense.value.category,
-        description,
-        expenseDate: newExpense.value.date,
-      }
-
-      const savedExpense = editingExpenseId.value
-        ? await updateExpenseApi(editingExpenseId.value, request)
-        : await createExpenseApi(request)
-
-      expenses.value = [
-        mapExpense(savedExpense),
-        ...expenses.value.filter(expense => expense.id !== savedExpense.id),
-      ]
-
-      newExpense.value = {
-        description: '',
-        category: 'Food & Dining',
-        amount: '',
-        date: toDateInputValue(new Date()),
-      }
-
-      editingExpenseId.value = null
-      isExpenseModalOpen.value = false
-    } catch (error) {
-      saveErrorMessage.value = error instanceof Error
-        ? error.message
-        : 'Unable to save the expense. Please try again.'
-    } finally {
-      isSaving.value = false
+    const request = {
+      amount,
+      category: newExpense.value.category,
+      description,
+      expenseDate: newExpense.value.date,
     }
+
+    const savedExpense = await saveExpense(
+      request,
+      editingExpenseId.value ?? undefined,
+    )
+
+    if (!savedExpense) return
+
+    newExpense.value = {
+      description: '',
+      category: 'Food & Dining',
+      amount: '',
+      date: toDateInputValue(new Date()),
+    }
+
+    editingExpenseId.value = null
+    isExpenseModalOpen.value = false
   }
 
   async function deleteExpense(expense: Expense) {
@@ -417,22 +311,7 @@
 
     if (!confirmed) return
 
-    deletingExpenseId.value = expense.id
-    deleteErrorMessage.value = ''
-
-    try {
-      await deleteExpenseApi(expense.id)
-
-      expenses.value = expenses.value.filter(
-        item => item.id !== expense.id,
-      )
-    } catch (error) {
-      deleteErrorMessage.value = error instanceof Error
-        ? error.message
-        : 'Unable to delete the expense. Please try again.'
-    } finally {
-      deletingExpenseId.value = null
-    }
+    await removeExpense(expense.id)
   }
 </script>
 
