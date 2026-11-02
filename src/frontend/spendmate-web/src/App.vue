@@ -1,4 +1,5 @@
 <script setup lang="ts">
+  import { useDashboardMetrics } from './composables/useDashboardMetrics'
   import {
     toDateInputValue,
     useDateRange,
@@ -78,6 +79,15 @@
     { name: 'Bills', color: '#a47bc2', icon: '🧾' },
     { name: 'Other', color: '#9ca3af', icon: '📦' },
   ]
+
+  const {
+    totalSpent,
+    transactionCount,
+    averageExpense,
+    expenseCategories,
+    categoryTotals,
+    largestCategory,
+  } = useDashboardMetrics(dateFilteredExpenses, categories)
 
   type ChatExpenseDraft = {
     description: string
@@ -190,47 +200,6 @@
       expense => expense.category === selectedFilter.value,
     )
   })
-
-  const totalSpent = computed(() =>
-    dateFilteredExpenses.value.reduce(
-      (sum, expense) => sum + expense.amount,
-      0,
-    ),
-  )
-
-  const expenseCategories = computed(() => {
-    const knownNames = new Set(categories.map(category => category.name))
-
-    const additionalCategories = [
-      ...new Set(
-        dateFilteredExpenses.value
-          .map(expense => expense.category)
-          .filter(category => !knownNames.has(category)),
-      ),
-    ].map(name => ({
-      name,
-      color: '#9ca3af',
-      icon: '📦',
-    }))
-
-    return [...categories, ...additionalCategories]
-  })
-
-  const categoryTotals = computed(() =>
-    expenseCategories.value
-      .map(category => ({
-        ...category,
-        amount: dateFilteredExpenses.value
-          .filter(expense => expense.category === category.name)
-          .reduce((sum, expense) => sum + expense.amount, 0),
-      }))
-      .filter(category => category.amount > 0)
-      .sort((a, b) => b.amount - a.amount),
-  )
-
-  const largestCategory = computed(
-    () => categoryTotals.value[0]?.name ?? '—',
-  )
 
   const newExpense = ref({
     description: '',
@@ -492,7 +461,7 @@
                   <span class="summary-label">Transactions</span>
                   <span class="summary-icon blue-icon">≡</span>
                 </div>
-                <div class="summary-amount">{{ dateFilteredExpenses.length }}</div>
+                <div class="summary-amount">{{ transactionCount }}</div>
                 <div class="summary-foot">Transactions in selected period</div>
               </article>
 
@@ -502,13 +471,7 @@
                   <span class="summary-icon amber-icon">◷</span>
                 </div>
                 <div class="summary-amount">
-                  {{
-                    formatCurrency(
-                      dateFilteredExpenses.length
-                        ? Math.round(totalSpent / dateFilteredExpenses.length)
-                        : 0,
-                    )
-                  }}
+                  {{ formatCurrency(averageExpense) }}
                 </div>
                 <div class="summary-foot">Per transaction</div>
               </article>
