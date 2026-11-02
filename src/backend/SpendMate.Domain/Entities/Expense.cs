@@ -73,6 +73,13 @@ public class Expense
                 nameof(description));
         }
 
+        if (expenseDate == DateOnly.MinValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(expenseDate),
+                "Expense date must be a valid date.");
+        }
+
         return new Expense
         {
             FamilyId = familyId,
@@ -123,6 +130,13 @@ public class Expense
             throw new ArgumentException(
                 "Description must not exceed 500 characters.",
                 nameof(description));
+        }
+
+        if (expenseDate == DateOnly.MinValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(expenseDate),
+                "Expense date must be a valid date.");
         }
 
         Amount = amount;

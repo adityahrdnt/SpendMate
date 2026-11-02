@@ -174,4 +174,42 @@ public class ExpenseTests
 
         Assert.Equal(description, expense.Description);
     }
+
+    [Fact]
+    public void Create_WithDefaultExpenseDate_ThrowsArgumentOutOfRangeException()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Expense.Create(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                35_000m,
+                "Food",
+                null,
+                DateOnly.MinValue));
+    }
+
+    [Fact]
+    public void Update_WithDefaultExpenseDate_ThrowsArgumentOutOfRangeException()
+    {
+        var expense = Expense.Create(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            35_000m,
+            "Food",
+            null,
+            new DateOnly(2026, 10, 28));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            expense.Update(
+                40_000m,
+                "Transport",
+                null,
+                DateOnly.MinValue));
+
+        Assert.Equal(35_000m, expense.Amount);
+        Assert.Equal("Food", expense.Category);
+        Assert.Null(expense.Description);
+        Assert.Equal(new DateOnly(2026, 10, 28), expense.ExpenseDate);
+        Assert.Null(expense.UpdatedAtUtc);
+    }
 }
