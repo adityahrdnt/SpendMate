@@ -1,3 +1,5 @@
+import { deleteRequest, getJson, postJson, putJson } from "./apiClient";
+
 export interface ExpenseResponse {
   id: string;
   familyId: string;
@@ -23,81 +25,44 @@ export interface UpdateExpenseRequest {
   expenseDate: string;
 }
 
-const FAMILY_ID = "22222222-2222-2222-2222-222222222222";
-
-export const DEVELOPMENT_USER_ID = "11111111-1111-1111-1111-111111111111";
-
-const EXPENSES_URL = `/api/families/${FAMILY_ID}/expenses`;
-
-async function readErrorMessage(response: Response): Promise<string> {
-  try {
-    const body: unknown = await response.json();
-
-    if (typeof body === "object" && body !== null) {
-      const problem = body as Record<string, unknown>;
-
-      if (typeof problem.detail === "string") return problem.detail;
-      if (typeof problem.error === "string") return problem.error;
-      if (typeof problem.title === "string") return problem.title;
-    }
-  } catch {
-    // The response may not contain a JSON body.
+function getExpensesUrl(familyId: string): string {
+  if (!familyId.trim()) {
+    throw new Error("A valid family ID is required.");
   }
 
-  return `Request failed (${response.status} ${response.statusText})`;
+  return `/api/families/${encodeURIComponent(familyId)}/expenses`;
 }
 
-async function ensureSuccess(response: Response): Promise<Response> {
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-
-  return response;
+export function getExpenses(familyId: string): Promise<ExpenseResponse[]> {
+  return getJson<ExpenseResponse[]>(getExpensesUrl(familyId));
 }
 
-export async function getExpenses(): Promise<ExpenseResponse[]> {
-  const response = await ensureSuccess(await fetch(EXPENSES_URL));
-
-  return response.json() as Promise<ExpenseResponse[]>;
-}
-
-export async function createExpense(
+export function createExpense(
+  familyId: string,
   request: CreateExpenseRequest,
 ): Promise<ExpenseResponse> {
-  const response = await ensureSuccess(
-    await fetch(EXPENSES_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-    }),
+  return postJson<CreateExpenseRequest, ExpenseResponse>(
+    getExpensesUrl(familyId),
+    request,
   );
-
-  return response.json() as Promise<ExpenseResponse>;
 }
 
-export async function updateExpense(
+export function updateExpense(
+  familyId: string,
   expenseId: string,
   request: UpdateExpenseRequest,
 ): Promise<ExpenseResponse> {
-  const response = await ensureSuccess(
-    await fetch(`${EXPENSES_URL}/${expenseId}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-    }),
+  return putJson<UpdateExpenseRequest, ExpenseResponse>(
+    `${getExpensesUrl(familyId)}/${encodeURIComponent(expenseId)}`,
+    request,
   );
-
-  return response.json() as Promise<ExpenseResponse>;
 }
 
-export async function deleteExpense(expenseId: string): Promise<void> {
-  await ensureSuccess(
-    await fetch(`${EXPENSES_URL}/${expenseId}`, {
-      method: "DELETE",
-    }),
+export function deleteExpense(
+  familyId: string,
+  expenseId: string,
+): Promise<void> {
+  return deleteRequest(
+    `${getExpensesUrl(familyId)}/${encodeURIComponent(expenseId)}`,
   );
 }

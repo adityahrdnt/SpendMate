@@ -8,6 +8,8 @@ public class User
 
     public required string DisplayName { get; set; }
 
+    public string? PasswordHash { get; set; }
+
     public DateTimeOffset CreatedAtUtc { get; set; } =
         DateTimeOffset.UtcNow;
 

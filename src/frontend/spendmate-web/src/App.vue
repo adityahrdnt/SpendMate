@@ -4,6 +4,9 @@
     toDateInputValue,
     useDateRange,
   } from './composables/useDateRange'
+  import { useAuth } from './composables/useAuth'
+  import AuthView from './components/AuthView.vue'
+  import type { LoginRequest, RegisterRequest } from './types/auth'
   import type { Expense } from './types/expense'
   import { useExpenses } from './composables/useExpenses'
   import { formatCurrency, formatDate } from './utils/formatters'
@@ -14,6 +17,71 @@
   const activePage = ref<Page>('Dashboard')
   const selectedFilter = ref('All')
 
+  // Authentication
+  const {
+    user,
+    status: authStatus,
+    errorMessage: authErrorMessage,
+    initialize,
+    login,
+    register,
+    logout,
+  } = useAuth()
+
+  const isAuthSubmitting = ref(false)
+
+  const familyId = computed(() => user.value?.familyId ?? '')
+  const currentUserId = computed(() => user.value?.userId ?? '')
+  const displayName = computed(() => user.value?.displayName ?? '')
+  const familyName = computed(() => user.value?.familyName ?? '')
+
+  const userInitial = computed(() =>
+    displayName.value.trim().charAt(0).toUpperCase() || '?',
+  )
+
+  const familyInitial = computed(() =>
+    familyName.value.trim().charAt(0).toUpperCase() || '?',
+  )
+
+  async function handleLogin(request: LoginRequest) {
+    isAuthSubmitting.value = true
+
+    try {
+      const success = await login(request)
+
+      if (success) {
+        await loadExpenses()
+      }
+    } finally {
+      isAuthSubmitting.value = false
+    }
+  }
+
+  async function handleRegister(request: RegisterRequest) {
+    isAuthSubmitting.value = true
+
+    try {
+      const success = await register(request)
+
+      if (success) {
+        await loadExpenses()
+      }
+    } finally {
+      isAuthSubmitting.value = false
+    }
+  }
+
+  async function handleLogout() {
+    const success = await logout()
+
+    if (success) {
+      expenses.value = []
+      activePage.value = 'Dashboard'
+      selectedFilter.value = 'All'
+    }
+  }
+
+  // Expenses
   const {
     expenses,
     isLoading,
@@ -25,7 +93,7 @@
     loadExpenses,
     saveExpense,
     removeExpense,
-  } = useExpenses()
+  } = useExpenses(familyId, currentUserId)
 
   const {
     dateRangePreset,
@@ -183,8 +251,13 @@
     }
   }
 
-  onMounted(() => {
-    loadExpenses()
+  // Initialize authentication before loading expenses.
+  onMounted(async () => {
+    await initialize()
+
+    if (authStatus.value === 'authenticated') {
+      await loadExpenses()
+    }
   })
 
   const filteredExpenses = computed(() => {
@@ -286,7 +359,23 @@
 
 
 <template>
-  <div class="app-shell">
+  <div
+    v-if="authStatus === 'initializing'"
+    class="auth-loading"
+    role="status"
+  >
+    Checking your session...
+  </div>
+
+  <AuthView
+    v-else-if="authStatus === 'unauthenticated'"
+    :is-submitting="isAuthSubmitting"
+    :error-message="authErrorMessage"
+    @login="handleLogin"
+    @register="handleRegister"
+  />
+
+  <div v-else class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="#" @click.prevent="activePage = 'Dashboard'">
         <span class="brand-mark">S</span>
@@ -294,10 +383,10 @@
       </a>
 
       <div class="workspace">
-        <div class="workspace-avatar">H</div>
+        <div class="workspace-avatar">{{ familyInitial }}</div>
         <div class="workspace-copy">
           <span class="eyebrow">WORKSPACE</span>
-          <strong>Herdianto Family</strong>
+          <strong>{{ familyName }}</strong>
         </div>
         <span class="chevron">⌄</span>
       </div>
@@ -324,21 +413,30 @@
       <div class="sidebar-bottom">
         <div class="family-card">
           <div class="family-avatars">
-            <span class="person-avatar avatar-one">A</span>
-            <span class="person-avatar avatar-two">S</span>
-            <span class="person-avatar avatar-three">+</span>
+            <span class="person-avatar avatar-one">{{ userInitial }}</span>
           </div>
           <strong>Better together.</strong>
           <p>Keep your family spending in sync.</p>
-          <button @click="activePage = 'Expenses'">View family activity <span>→</span></button>
+          <button @click="activePage = 'Expenses'">
+            View family activity <span>→</span>
+          </button>
         </div>
+
         <div class="profile">
-          <div class="profile-avatar">A</div>
+          <div class="profile-avatar">{{ userInitial }}</div>
           <div class="profile-copy">
-            <strong>Aditya</strong>
-            <span>Family owner</span>
+            <strong>{{ displayName }}</strong>
+            <span>Signed in</span>
           </div>
-          <span class="more-icon">···</span>
+          <button
+            type="button"
+            class="more-icon"
+            title="Sign out"
+            aria-label="Sign out"
+            @click="handleLogout"
+          >
+            ↪
+          </button>
         </div>
       </div>
     </aside>
@@ -351,7 +449,7 @@
         </div>
         <div class="topbar-actions">
           <span class="current-month">{{ currentMonthLabel }}</span>
-          <button class="avatar-small" aria-label="User profile">A</button>
+          <button class="avatar-small" aria-label="User profile">{{ userInitial }}</button>
         </div>
       </header>
 
@@ -575,7 +673,8 @@
                 </div>
               </div>
 
-              <div class="table-wrap">
+              <!-- Desktop / tablet: existing table layout -->
+              <div class="table-wrap desktop-transactions">
                 <table>
                   <thead>
                     <tr>
@@ -588,7 +687,10 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="expense in (activePage === 'Dashboard' ? filteredExpenses.slice(0, 5) : filteredExpenses)" :key="expense.id">
+                    <tr
+                      v-for="expense in (activePage === 'Dashboard' ? filteredExpenses.slice(0, 5) : filteredExpenses)"
+                      :key="expense.id"
+                    >
                       <td>
                         <div class="expense-description">
                           <span class="expense-bullet" :class="{ 'bullet-food': expense.category === 'Food & Dining' }">
@@ -609,14 +711,9 @@
                       </td>
                       <td class="amount-column amount-cell">{{ formatCurrency(expense.amount) }}</td>
                       <td class="actions-cell">
-                        <button
-                          type="button"
-                          class="secondary-button"
-                          @click="openEditExpenseModal(expense)"
-                        >
+                        <button type="button" class="secondary-button" @click="openEditExpenseModal(expense)">
                           Edit
                         </button>
-
                         <button
                           type="button"
                           class="secondary-button"
@@ -634,10 +731,67 @@
                     </tr>
                   </tbody>
                 </table>
-                <p v-if="deleteErrorMessage" class="empty-state" role="alert">
-                  {{ deleteErrorMessage }}
+              </div>
+
+              <!-- Mobile: card layout -->
+              <div class="mobile-transactions">
+                <article
+                  v-for="expense in (activePage === 'Dashboard' ? filteredExpenses.slice(0, 5) : filteredExpenses)"
+                  :key="expense.id"
+                  class="expense-mobile-card"
+                >
+                  <div class="expense-mobile-top">
+                    <div class="expense-description">
+                      <span class="expense-bullet" :class="{ 'bullet-food': expense.category === 'Food & Dining' }">
+                        {{ categories.find(category => category.name === expense.category)?.icon ?? '📦' }}
+                      </span>
+                      <div class="expense-mobile-info">
+                        <strong>{{ expense.description }}</strong>
+                        <span class="category-pill">{{ expense.category }}</span>
+                      </div>
+                    </div>
+
+                    <strong class="amount-cell">{{ formatCurrency(expense.amount) }}</strong>
+                  </div>
+
+                  <div class="expense-mobile-meta">
+                    <span class="date-cell">{{ formatDate(expense.date) }}</span>
+                    <span class="added-by">
+                      <span class="mini-avatar" :class="expense.createdBy === 'You' ? 'you-avatar' : 'sarah-avatar'">
+                        {{ expense.createdBy === 'You' ? 'A' : 'S' }}
+                      </span>
+                      {{ expense.createdBy }}
+                    </span>
+                  </div>
+
+                  <div class="expense-mobile-actions">
+                    <button
+                      type="button"
+                      class="secondary-button"
+                      @click="openEditExpenseModal(expense)"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      class="secondary-button"
+                      :disabled="deletingExpenseId === expense.id"
+                      @click="deleteExpense(expense)"
+                    >
+                      {{ deletingExpenseId === expense.id ? 'Deleting...' : 'Delete' }}
+                    </button>
+                  </div>
+                </article>
+
+                <p v-if="filteredExpenses.length === 0" class="mobile-empty-state">
+                  No expenses found for the selected filters.
                 </p>
               </div>
+
+              <p v-if="deleteErrorMessage" class="empty-state" role="alert">
+                {{ deleteErrorMessage }}
+              </p>
+
             </section>
 
             <footer class="page-footer">

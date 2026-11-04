@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using SpendMate.Application.Abstractions;
 using SpendMate.Infrastructure.Repositories;
+using SpendMate.Infrastructure.Security;
 
 namespace SpendMate.Infrastructure;
 
@@ -13,6 +14,9 @@ public static class DependencyInjection
         services.AddScoped<
             IFamilyMembershipRepository,
             FamilyMembershipRepository>();
+
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IPasswordHasher, AspNetPasswordHasher>();
 
         return services;
     }

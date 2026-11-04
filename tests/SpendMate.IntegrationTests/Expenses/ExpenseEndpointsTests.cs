@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Mvc.Testing;
 using SpendMate.Application.Expenses.Dtos;
 using SpendMate.IntegrationTests.Support;
 using Xunit;
@@ -7,9 +8,21 @@ using Xunit;
 namespace SpendMate.IntegrationTests.Expenses;
 
 public sealed class ExpenseEndpointsTests(
-    SpendMateApiFactory factory) : IClassFixture<SpendMateApiFactory>
+    SpendMateApiFactory factory)
+    : IClassFixture<SpendMateApiFactory>, IAsyncLifetime
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private HttpClient _client = null!;
+
+    public async Task InitializeAsync()
+    {
+        _client = await factory.CreateAuthenticatedClientWithCsrfAsync();
+    }
+
+    public Task DisposeAsync()
+    {
+        _client.Dispose();
+        return Task.CompletedTask;
+    }
 
     [Fact]
     public async Task CreateExpense_AsFamilyMember_ReturnsCreatedAndPersistsExpense()
@@ -483,4 +496,64 @@ public sealed class ExpenseEndpointsTests(
         // Assert
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
+
+    [Fact]
+    public async Task GetExpenses_WithoutAuthentication_ReturnsUnauthorized()
+    {
+        // Arrange
+        using var unauthenticatedClient = factory.CreateClient();
+
+        // Act
+        var response = await unauthenticatedClient.GetAsync(
+            $"/api/families/{SpendMateApiFactory.TestFamilyId}/expenses");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateExpense_WithoutCsrfToken_ReturnsBadRequest()
+    {
+        // Arrange
+        using var client = factory.CreateAuthenticatedClient();
+
+        var request = new CreateExpenseRequest(
+            Amount: 35000m,
+            Category: "Food",
+            Description: "Request without CSRF token",
+            ExpenseDate: new DateOnly(2026, 10, 28));
+
+        // Act
+        var response = await client.PostAsJsonAsync(
+            $"/api/families/{SpendMateApiFactory.TestFamilyId}/expenses",
+            request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetCsrfToken_ReturnsRequestToken()
+    {
+        // Arrange
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://localhost")
+            });
+
+        // Act
+        var response = await client.GetAsync("/api/auth/csrf");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var result = await response.Content
+            .ReadFromJsonAsync<CsrfTokenResponse>();
+
+        Assert.NotNull(result);
+        Assert.False(string.IsNullOrWhiteSpace(result.RequestToken));
+    }
+
+    private sealed record CsrfTokenResponse(string RequestToken);
 }

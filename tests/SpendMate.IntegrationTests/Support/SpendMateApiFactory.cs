@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -5,10 +7,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using SpendMate.Application.Abstractions;
 using SpendMate.Domain.Entities;
 using SpendMate.Domain.Enums;
 using SpendMate.Infrastructure.Data;
+using SpendMate.IntegrationTests.Support.Authentication;
+using System.Net.Http.Json;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -42,8 +45,30 @@ public sealed class SpendMateApiFactory
 
         builder.ConfigureTestServices(services =>
         {
-            services.RemoveAll<ICurrentUser>();
-            services.AddScoped<ICurrentUser, TestCurrentUser>();
+            services
+                .AddAuthentication(options =>
+                {
+                    options.DefaultScheme = "TestOrCookie";
+                    options.DefaultAuthenticateScheme = "TestOrCookie";
+                    options.DefaultChallengeScheme = "TestOrCookie";
+                    options.DefaultForbidScheme = "TestOrCookie";
+                })
+                .AddPolicyScheme(
+                    "TestOrCookie",
+                    "Test or Cookie Authentication",
+                    options =>
+                    {
+                        options.ForwardDefaultSelector = context =>
+                            context.Request.Headers.ContainsKey(
+                                TestAuthenticationHandler.UserIdHeader)
+                                ? TestAuthenticationHandler.SchemeName
+                                : CookieAuthenticationDefaults.AuthenticationScheme;
+                    })
+                .AddScheme<
+                    AuthenticationSchemeOptions,
+                    TestAuthenticationHandler>(
+                    TestAuthenticationHandler.SchemeName,
+                    _ => { });
         });
     }
 
@@ -59,17 +84,14 @@ public sealed class SpendMateApiFactory
 
         try
         {
-            // Provide the connection string before Program.cs starts.
             Environment.SetEnvironmentVariable(
                 connectionStringVariable,
                 _postgres.GetConnectionString());
 
-            // Starts the API host and applies database migrations.
             using var client = CreateClient();
         }
         finally
         {
-            // Restore the original process environment.
             Environment.SetEnvironmentVariable(
                 connectionStringVariable,
                 originalConnectionString);
@@ -126,9 +148,53 @@ public sealed class SpendMateApiFactory
         await base.DisposeAsync();
         await _postgres.DisposeAsync();
     }
-}
 
-public sealed class TestCurrentUser : ICurrentUser
-{
-    public Guid UserId => SpendMateApiFactory.TestUserId;
+    public HttpClient CreateAuthenticatedClient(Guid? userId = null)
+    {
+        var client = CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        client.DefaultRequestHeaders.Add(
+            TestAuthenticationHandler.UserIdHeader,
+            (userId ?? TestUserId).ToString());
+
+        return client;
+    }
+
+    public async Task<HttpClient> CreateAuthenticatedClientWithCsrfAsync(
+    Guid? userId = null)
+    {
+        var client = CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        client.DefaultRequestHeaders.Add(
+            TestAuthenticationHandler.UserIdHeader,
+            (userId ?? TestUserId).ToString());
+
+        var csrfResponse = await client.GetAsync("/api/auth/csrf");
+        csrfResponse.EnsureSuccessStatusCode();
+
+        var csrfToken = await csrfResponse.Content
+            .ReadFromJsonAsync<CsrfTokenResponse>();
+
+        if (string.IsNullOrWhiteSpace(csrfToken?.RequestToken))
+        {
+            client.Dispose();
+
+            throw new InvalidOperationException(
+                "The CSRF endpoint did not return a valid request token.");
+        }
+
+        client.DefaultRequestHeaders.Add(
+            "X-CSRF-TOKEN",
+            csrfToken.RequestToken);
+
+        return client;
+    }
+
+    private sealed record CsrfTokenResponse(string RequestToken);
 }
