@@ -303,7 +303,11 @@ public sealed class ExpenseEndpointsTests(
         var expenseFamilyId = SpendMateApiFactory.CrossFamilyId;
         var requestedFamilyId = SpendMateApiFactory.TestFamilyId;
 
-        var createResponse = await _client.PostAsJsonAsync(
+        using var ownerClient =
+            await factory.CreateAuthenticatedClientWithCsrfAsync(
+                SpendMateApiFactory.SecondTestUserId);
+
+        var createResponse = await ownerClient.PostAsJsonAsync(
             $"/api/families/{expenseFamilyId}/expenses",
             new CreateExpenseRequest(
                 Amount: 25000m,
@@ -331,7 +335,7 @@ public sealed class ExpenseEndpointsTests(
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
 
         // Verify the original expense remains unchanged.
-        var getResponse = await _client.GetAsync(
+        var getResponse = await ownerClient.GetAsync(
             $"/api/families/{expenseFamilyId}/expenses");
 
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
@@ -357,12 +361,16 @@ public sealed class ExpenseEndpointsTests(
         var expenseFamilyId = SpendMateApiFactory.CrossFamilyId;
         var requestedFamilyId = SpendMateApiFactory.TestFamilyId;
 
-        var createResponse = await _client.PostAsJsonAsync(
+        using var ownerClient =
+            await factory.CreateAuthenticatedClientWithCsrfAsync(
+                SpendMateApiFactory.SecondTestUserId);
+
+        var createResponse = await ownerClient.PostAsJsonAsync(
             $"/api/families/{expenseFamilyId}/expenses",
             new CreateExpenseRequest(
                 Amount: 25000m,
                 Category: "Food",
-                Description: "Cross-family delete test expense",
+                Description: "Cross-family test expense",
                 ExpenseDate: new DateOnly(2026, 10, 28)));
 
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
@@ -380,7 +388,7 @@ public sealed class ExpenseEndpointsTests(
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
 
         // Verify the original expense still exists.
-        var getResponse = await _client.GetAsync(
+        var getResponse = await ownerClient.GetAsync(
             $"/api/families/{expenseFamilyId}/expenses");
 
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
@@ -396,7 +404,7 @@ public sealed class ExpenseEndpointsTests(
 
         Assert.Equal(25000m, persistedExpense.Amount);
         Assert.Equal("Food", persistedExpense.Category);
-        Assert.Equal("Cross-family delete test expense", persistedExpense.Description);
+        Assert.Equal("Cross-family test expense", persistedExpense.Description);
     }
 
     [Fact]
@@ -553,6 +561,150 @@ public sealed class ExpenseEndpointsTests(
 
         Assert.NotNull(result);
         Assert.False(string.IsNullOrWhiteSpace(result.RequestToken));
+    }
+
+    [Fact]
+    public async Task GetExpenses_AsMemberOfAnotherFamily_ReturnsForbidden()
+    {
+        // Arrange
+        var familyId = SpendMateApiFactory.CrossFamilyId;
+
+        // Act
+        var response = await _client.GetAsync(
+            $"/api/families/{familyId}/expenses");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateExpense_AsMemberOfAnotherFamily_ReturnsForbidden()
+    {
+        // Arrange
+        var familyId = SpendMateApiFactory.CrossFamilyId;
+
+        var request = new CreateExpenseRequest(
+            Amount: 25000m,
+            Category: "Transport",
+            Description: "Should be rejected",
+            ExpenseDate: new DateOnly(2026, 10, 28));
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/api/families/{familyId}/expenses",
+            request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateExpense_AsMemberOfAnotherFamily_ReturnsForbidden()
+    {
+        // Arrange
+        var familyId = SpendMateApiFactory.CrossFamilyId;
+
+        using var ownerClient =
+            await factory.CreateAuthenticatedClientWithCsrfAsync(
+                SpendMateApiFactory.SecondTestUserId);
+
+        var createResponse = await ownerClient.PostAsJsonAsync(
+            $"/api/families/{familyId}/expenses",
+            new CreateExpenseRequest(
+                Amount: 25000m,
+                Category: "Food",
+                Description: "Authorization update test",
+                ExpenseDate: new DateOnly(2026, 10, 28)));
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var createdExpense =
+            await createResponse.Content.ReadFromJsonAsync<ExpenseResponse>();
+
+        Assert.NotNull(createdExpense);
+
+        // Act
+        var response = await _client.PutAsJsonAsync(
+            $"/api/families/{familyId}/expenses/{createdExpense.Id}",
+            new UpdateExpenseRequest(
+                Amount: 40000m,
+                Category: "Transport",
+                Description: "Should not be updated",
+                ExpenseDate: new DateOnly(2026, 10, 29)));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        // Verify the original expense remains unchanged.
+        var getResponse = await ownerClient.GetAsync(
+            $"/api/families/{familyId}/expenses");
+
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+
+        var expenses =
+            await getResponse.Content.ReadFromJsonAsync<List<ExpenseResponse>>();
+
+        Assert.NotNull(expenses);
+
+        var persistedExpense = Assert.Single(
+            expenses,
+            expense => expense.Id == createdExpense.Id);
+
+        Assert.Equal(25000m, persistedExpense.Amount);
+        Assert.Equal("Food", persistedExpense.Category);
+        Assert.Equal("Authorization update test", persistedExpense.Description);
+    }
+
+    [Fact]
+    public async Task DeleteExpense_AsMemberOfAnotherFamily_ReturnsForbidden()
+    {
+        // Arrange
+        var familyId = SpendMateApiFactory.CrossFamilyId;
+
+        using var ownerClient =
+            await factory.CreateAuthenticatedClientWithCsrfAsync(
+                SpendMateApiFactory.SecondTestUserId);
+
+        var createResponse = await ownerClient.PostAsJsonAsync(
+            $"/api/families/{familyId}/expenses",
+            new CreateExpenseRequest(
+                Amount: 25000m,
+                Category: "Food",
+                Description: "Authorization delete test",
+                ExpenseDate: new DateOnly(2026, 10, 28)));
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var createdExpense =
+            await createResponse.Content.ReadFromJsonAsync<ExpenseResponse>();
+
+        Assert.NotNull(createdExpense);
+
+        // Act
+        var response = await _client.DeleteAsync(
+            $"/api/families/{familyId}/expenses/{createdExpense.Id}");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        // Verify the original expense still exists.
+        var getResponse = await ownerClient.GetAsync(
+            $"/api/families/{familyId}/expenses");
+
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+
+        var expenses =
+            await getResponse.Content.ReadFromJsonAsync<List<ExpenseResponse>>();
+
+        Assert.NotNull(expenses);
+
+        var persistedExpense = Assert.Single(
+            expenses,
+            expense => expense.Id == createdExpense.Id);
+
+        Assert.Equal(25000m, persistedExpense.Amount);
+        Assert.Equal("Food", persistedExpense.Category);
+        Assert.Equal("Authorization delete test", persistedExpense.Description);
     }
 
     private sealed record CsrfTokenResponse(string RequestToken);

@@ -30,6 +30,9 @@ public sealed class SpendMateApiFactory
     public static readonly Guid TestUserId =
         Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
+    public static readonly Guid SecondTestUserId =
+        Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+
     public static readonly Guid TestFamilyId =
         Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
@@ -109,6 +112,13 @@ public sealed class SpendMateApiFactory
             DisplayName = "Integration Test User"
         });
 
+        dbContext.Users.Add(new User
+        {
+            Id = SecondTestUserId,
+            Email = "integration-test-user-b@spendmate.local",
+            DisplayName = "Integration Test User B"
+        });
+
         dbContext.Families.AddRange(
             new Family
             {
@@ -136,7 +146,7 @@ public sealed class SpendMateApiFactory
         dbContext.FamilyMemberships.Add(new FamilyMembership
         {
             FamilyId = CrossFamilyId,
-            UserId = TestUserId,
+            UserId = SecondTestUserId,
             Role = FamilyRole.Owner
         });
 
