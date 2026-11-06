@@ -162,6 +162,7 @@ app.UseAuthorization();
 app.MapAntiforgeryEndpoints();
 app.MapAuthEndpoints();
 app.MapExpenseEndpoints();
+app.MapFamilyEndpoints();
 
 app.Run();
 

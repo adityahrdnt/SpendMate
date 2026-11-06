@@ -14,6 +14,7 @@ public static class DependencyInjection
         services.AddScoped<
             IFamilyMembershipRepository,
             FamilyMembershipRepository>();
+        services.AddScoped<IFamilyRepository, FamilyRepository>();
 
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IPasswordHasher, AspNetPasswordHasher>();
