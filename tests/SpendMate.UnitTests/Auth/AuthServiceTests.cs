@@ -58,6 +58,8 @@ public class AuthServiceTests
                     user.PasswordHash == "hashed-password" &&
                     user.Memberships.Count == 1 &&
                     user.Memberships.First().Role == FamilyRole.Owner &&
+                    user.Memberships.First().Family.Type == FamilyType.Personal &&
+                    user.Memberships.First().Family.PersonalOwnerUserId == user.Id &&
                     user.Memberships.First().Family.Name == "Herdianto Family"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
@@ -156,13 +158,8 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task LoginAsync_WhenCredentialsAreValid_ReturnsUserAndFamily()
+    public async Task LoginAsync_WhenCredentialsAreValid_ReturnsPersonalFamily()
     {
-        var family = new Family
-        {
-            Name = "Herdianto Family"
-        };
-
         var user = new User
         {
             Email = "aditya@example.com",
@@ -170,17 +167,41 @@ public class AuthServiceTests
             PasswordHash = "hashed-password"
         };
 
-        var membership = new FamilyMembership
+        var sharedFamily = new Family
         {
-            UserId = user.Id,
-            FamilyId = family.Id,
-            User = user,
-            Family = family,
-            Role = FamilyRole.Owner
+            Name = "Shared Family",
+            Type = FamilyType.Shared
         };
 
-        user.Memberships.Add(membership);
-        family.Memberships.Add(membership);
+        var personalFamily = new Family
+        {
+            Name = "Herdianto Family",
+            Type = FamilyType.Personal,
+            PersonalOwnerUserId = user.Id
+        };
+
+        var sharedMembership = new FamilyMembership
+        {
+            UserId = user.Id,
+            FamilyId = sharedFamily.Id,
+            User = user,
+            Family = sharedFamily,
+            Role = FamilyRole.Member,
+            JoinedAtUtc = DateTimeOffset.UtcNow.AddDays(-10)
+        };
+
+        var personalMembership = new FamilyMembership
+        {
+            UserId = user.Id,
+            FamilyId = personalFamily.Id,
+            User = user,
+            Family = personalFamily,
+            Role = FamilyRole.Owner,
+            JoinedAtUtc = DateTimeOffset.UtcNow
+        };
+
+        user.Memberships.Add(sharedMembership);
+        user.Memberships.Add(personalMembership);
 
         _userRepository
             .Setup(x => x.GetByEmailAsync(
@@ -205,7 +226,7 @@ public class AuthServiceTests
         Assert.Equal(user.Id, result.UserId);
         Assert.Equal("aditya@example.com", result.Email);
         Assert.Equal("Aditya", result.DisplayName);
-        Assert.Equal(family.Id, result.FamilyId);
+        Assert.Equal(personalFamily.Id, result.FamilyId);
         Assert.Equal("Herdianto Family", result.FamilyName);
     }
 
@@ -282,6 +303,55 @@ public class AuthServiceTests
             DisplayName = "Aditya",
             PasswordHash = "hashed-password"
         };
+
+        _userRepository
+            .Setup(x => x.GetByEmailAsync(
+                "aditya@example.com",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _passwordHasher
+            .Setup(x => x.VerifyPassword(
+                user,
+                "hashed-password",
+                "Password123"))
+            .Returns(true);
+
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.LoginAsync(
+                new LoginRequest(
+                    "aditya@example.com",
+                    "Password123")));
+    }
+
+    [Fact]
+    public async Task LoginAsync_WhenUserHasOnlySharedFamily_ThrowsUnauthorizedAccessException()
+    {
+        var user = new User
+        {
+            Email = "aditya@example.com",
+            DisplayName = "Aditya",
+            PasswordHash = "hashed-password"
+        };
+
+        var family = new Family
+        {
+            Name = "Shared Family",
+            Type = FamilyType.Shared
+        };
+
+        var membership = new FamilyMembership
+        {
+            UserId = user.Id,
+            FamilyId = family.Id,
+            User = user,
+            Family = family,
+            Role = FamilyRole.Member
+        };
+
+        user.Memberships.Add(membership);
 
         _userRepository
             .Setup(x => x.GetByEmailAsync(

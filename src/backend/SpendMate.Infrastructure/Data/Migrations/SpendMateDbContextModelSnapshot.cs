@@ -81,9 +81,24 @@ namespace SpendMate.Infrastructure.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<Guid?>("PersonalOwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.HasKey("Id");
 
-                    b.ToTable("Families");
+                    b.HasIndex("PersonalOwnerUserId")
+                        .IsUnique()
+                        .HasFilter("\"PersonalOwnerUserId\" IS NOT NULL");
+
+                    b.ToTable("Families", t =>
+                        {
+                            t.HasCheckConstraint("CK_Families_Type_PersonalOwner", "(\"Type\" = 'Personal' AND \"PersonalOwnerUserId\" IS NOT NULL)\r\nOR\r\n(\"Type\" = 'Shared' AND \"PersonalOwnerUserId\" IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("SpendMate.Domain.Entities.FamilyMembership", b =>
@@ -157,6 +172,14 @@ namespace SpendMate.Infrastructure.Data.Migrations
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("Family");
+                });
+
+            modelBuilder.Entity("SpendMate.Domain.Entities.Family", b =>
+                {
+                    b.HasOne("SpendMate.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("PersonalOwnerUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("SpendMate.Domain.Entities.FamilyMembership", b =>

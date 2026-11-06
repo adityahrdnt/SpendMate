@@ -52,7 +52,9 @@ public sealed class AuthService(
 
         var family = new Family
         {
-            Name = familyName
+            Name = familyName,
+            Type = FamilyType.Personal,
+            PersonalOwnerUserId = user.Id
         };
 
         var membership = new FamilyMembership
@@ -107,8 +109,9 @@ public sealed class AuthService(
         }
 
         var membership = user.Memberships
-            .OrderBy(x => x.JoinedAtUtc)
-            .FirstOrDefault();
+            .SingleOrDefault(x =>
+                x.Family.Type == FamilyType.Personal &&
+                x.Family.PersonalOwnerUserId == user.Id);
 
         if (membership is null)
         {

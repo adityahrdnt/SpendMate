@@ -49,10 +49,17 @@ public static class DevelopmentDataSeeder
             family = new Family
             {
                 Id = DevelopmentIds.FamilyId,
-                Name = "SpendMate Demo Family"
+                Name = "SpendMate Demo Family",
+                Type = FamilyType.Personal,
+                PersonalOwnerUserId = DevelopmentIds.UserId
             };
 
             dbContext.Families.Add(family);
+        }
+        else
+        {
+            family.Type = FamilyType.Personal;
+            family.PersonalOwnerUserId = DevelopmentIds.UserId;
         }
 
         var membershipExists = await dbContext.FamilyMemberships

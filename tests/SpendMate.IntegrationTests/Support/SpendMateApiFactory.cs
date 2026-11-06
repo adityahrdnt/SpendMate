@@ -123,17 +123,23 @@ public sealed class SpendMateApiFactory
             new Family
             {
                 Id = TestFamilyId,
-                Name = "Integration Test Family"
+                Name = "Integration Test Family",
+                Type = FamilyType.Personal,
+                PersonalOwnerUserId = TestUserId
             },
             new Family
             {
                 Id = NonMemberFamilyId,
-                Name = "Non-member Test Family"
+                Name = "Non-member Test Family",
+                Type = FamilyType.Shared,
+                PersonalOwnerUserId = null
             },
             new Family
             {
                 Id = CrossFamilyId,
-                Name = "Cross-family Test Family"
+                Name = "Cross-family Test Family",
+                Type = FamilyType.Personal,
+                PersonalOwnerUserId = SecondTestUserId
             });
 
         dbContext.FamilyMemberships.Add(new FamilyMembership
@@ -146,6 +152,13 @@ public sealed class SpendMateApiFactory
         dbContext.FamilyMemberships.Add(new FamilyMembership
         {
             FamilyId = CrossFamilyId,
+            UserId = SecondTestUserId,
+            Role = FamilyRole.Owner
+        });
+
+        dbContext.FamilyMemberships.Add(new FamilyMembership
+        {
+            FamilyId = NonMemberFamilyId,
             UserId = SecondTestUserId,
             Role = FamilyRole.Owner
         });
