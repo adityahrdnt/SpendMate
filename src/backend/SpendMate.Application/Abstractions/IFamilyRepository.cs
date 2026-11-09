@@ -12,4 +12,9 @@ public interface IFamilyRepository
         Family family,
         FamilyMembership ownerMembership,
         CancellationToken cancellationToken = default);
+
+    Task<Family?> GetSharedFamilyOwnedByUserAsync(
+        Guid familyId,
+        Guid userId,
+        CancellationToken cancellationToken = default);
 }

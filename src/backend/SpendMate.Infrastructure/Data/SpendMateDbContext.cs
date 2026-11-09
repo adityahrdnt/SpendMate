@@ -14,6 +14,9 @@ public class SpendMateDbContext(
     public DbSet<FamilyMembership> FamilyMemberships =>
         Set<FamilyMembership>();
 
+    public DbSet<FamilyInvitation> FamilyInvitations =>
+        Set<FamilyInvitation>();
+
     public DbSet<Expense> Expenses => Set<Expense>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

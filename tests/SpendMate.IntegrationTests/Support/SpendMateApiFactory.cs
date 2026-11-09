@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SpendMate.Application.Abstractions;
 using SpendMate.Domain.Entities;
 using SpendMate.Domain.Enums;
 using SpendMate.Infrastructure.Data;
@@ -36,11 +37,17 @@ public sealed class SpendMateApiFactory
     public static readonly Guid TestFamilyId =
         Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
+    public static readonly Guid TestSharedFamilyId =
+        Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+
     public static readonly Guid NonMemberFamilyId =
         Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
     public static readonly Guid CrossFamilyId =
         Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+
+    public FakeEmailSender EmailSender =>
+        Services.GetRequiredService<FakeEmailSender>();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -72,6 +79,13 @@ public sealed class SpendMateApiFactory
                     TestAuthenticationHandler>(
                     TestAuthenticationHandler.SchemeName,
                     _ => { });
+
+            services.RemoveAll<IEmailSender>();
+
+            services.AddSingleton<FakeEmailSender>();
+
+            services.AddSingleton<IEmailSender>(serviceProvider =>
+                serviceProvider.GetRequiredService<FakeEmailSender>());
         });
     }
 
@@ -129,6 +143,13 @@ public sealed class SpendMateApiFactory
             },
             new Family
             {
+                Id = TestSharedFamilyId,
+                Name = "Integration Test Shared Family",
+                Type = FamilyType.Shared,
+                PersonalOwnerUserId = null
+            },
+            new Family
+            {
                 Id = NonMemberFamilyId,
                 Name = "Non-member Test Family",
                 Type = FamilyType.Shared,
@@ -145,6 +166,13 @@ public sealed class SpendMateApiFactory
         dbContext.FamilyMemberships.Add(new FamilyMembership
         {
             FamilyId = TestFamilyId,
+            UserId = TestUserId,
+            Role = FamilyRole.Owner
+        });
+
+        dbContext.FamilyMemberships.Add(new FamilyMembership
+        {
+            FamilyId = TestSharedFamilyId,
             UserId = TestUserId,
             Role = FamilyRole.Owner
         });

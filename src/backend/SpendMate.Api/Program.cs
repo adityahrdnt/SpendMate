@@ -26,7 +26,7 @@ builder.Services.AddDbContext<SpendMateDbContext>(options =>
 
 // Application
 builder.Services.AddApplication();
-builder.Services.AddInfrastructure();
+builder.Services.AddInfrastructure(builder.Configuration);
 
 // Authentication
 builder.Services
@@ -163,6 +163,7 @@ app.MapAntiforgeryEndpoints();
 app.MapAuthEndpoints();
 app.MapExpenseEndpoints();
 app.MapFamilyEndpoints();
+app.MapFamilyInvitationEndpoints();
 
 app.Run();
 

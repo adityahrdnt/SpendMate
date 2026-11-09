@@ -6,4 +6,9 @@ public interface IFamilyMembershipRepository
         Guid familyId,
         Guid userId,
         CancellationToken cancellationToken = default);
+
+    Task<bool> IsMemberByEmailAsync(
+        Guid familyId,
+        string normalizedEmail,
+        CancellationToken cancellationToken = default);
 }

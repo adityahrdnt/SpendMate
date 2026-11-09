@@ -19,4 +19,17 @@ public sealed class FamilyMembershipRepository(
                     membership.UserId == userId,
                 cancellationToken);
     }
+
+    public Task<bool> IsMemberByEmailAsync(
+    Guid familyId,
+    string normalizedEmail,
+    CancellationToken cancellationToken = default)
+    {
+        return dbContext.FamilyMemberships
+            .AnyAsync(
+                membership =>
+                    membership.FamilyId == familyId &&
+                    membership.User.Email == normalizedEmail,
+                cancellationToken);
+    }
 }

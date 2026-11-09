@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SpendMate.Application.Abstractions;
 using SpendMate.Domain.Entities;
+using SpendMate.Domain.Enums;
 using SpendMate.Infrastructure.Data;
 
 namespace SpendMate.Infrastructure.Repositories;
@@ -37,5 +38,21 @@ public sealed class FamilyRepository : IFamilyRepository
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return family;
+    }
+
+    public Task<Family?> GetSharedFamilyOwnedByUserAsync(
+    Guid familyId,
+    Guid userId,
+    CancellationToken cancellationToken = default)
+    {
+        return _dbContext.Families
+            .AsNoTracking()
+            .Where(family =>
+                family.Id == familyId &&
+                family.Type == FamilyType.Shared &&
+                family.Memberships.Any(membership =>
+                    membership.UserId == userId &&
+                    membership.Role == FamilyRole.Owner))
+            .SingleOrDefaultAsync(cancellationToken);
     }
 }
