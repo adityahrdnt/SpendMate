@@ -17,6 +17,7 @@ public class FamilyInvitationServiceTests
     private readonly Mock<ICurrentUser> _currentUser = new();
     private readonly Mock<IEmailSender> _emailSender = new();
     private readonly Mock<IInvitationLinkBuilder> _invitationLinkBuilder = new();
+    private readonly Mock<IUserRepository> _userRepository = new();
 
     private readonly Guid _userId = Guid.NewGuid();
     private readonly Guid _familyId = Guid.NewGuid();
@@ -56,10 +57,23 @@ public class FamilyInvitationServiceTests
             .Returns((string token) =>
                 $"http://localhost:5173/invitations/accept?token={token}");
 
+        _userRepository
+            .Setup(x => x.GetByIdAsync(
+                _userId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User
+            {
+                Id = _userId,
+                Email = "guest@example.com",
+                DisplayName = "Guest",
+                EmailVerifiedAtUtc = DateTimeOffset.UtcNow
+            });
+
         return new FamilyInvitationService(
             _familyRepository.Object,
             _membershipRepository.Object,
             _invitationRepository.Object,
+            _userRepository.Object,
             _currentUser.Object,
             _emailSender.Object,
             _invitationLinkBuilder.Object);
@@ -455,6 +469,450 @@ public class FamilyInvitationServiceTests
 
         _invitationRepository.Verify(
             x => x.SaveChangesAsync(It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WithValidInvitation_AcceptsInvitationAndCreatesMembership()
+    {
+        // Arrange
+        const string token = "valid-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        var invitation = new FamilyInvitation
+        {
+            FamilyId = _familyId,
+            InvitedByUserId = Guid.NewGuid(),
+            Email = "guest@example.com",
+            NormalizedEmail = "guest@example.com",
+            TokenHash = tokenHash,
+            ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(7)
+        };
+
+        _invitationRepository
+            .Setup(x => x.GetByTokenHashAsync(
+                tokenHash,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invitation);
+
+        _membershipRepository
+            .Setup(x => x.IsMemberAsync(
+                _familyId,
+                _userId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        _membershipRepository
+            .Setup(x => x.AddWithInvitationAsync(
+                It.IsAny<FamilyMembership>(),
+                It.IsAny<FamilyInvitation>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var service = CreateService();
+
+        // Act
+        var result = await service.AcceptAsync(token);
+
+        // Assert
+        Assert.Equal(invitation.Id, result.Id);
+        Assert.Equal(_familyId, result.FamilyId);
+        Assert.Equal("guest@example.com", result.Email);
+        Assert.Equal(
+            FamilyInvitationStatus.Accepted.ToString(),
+            result.Status);
+
+        _membershipRepository.Verify(
+            x => x.AddWithInvitationAsync(
+                It.Is<FamilyMembership>(membership =>
+                    membership.FamilyId == _familyId &&
+                    membership.UserId == _userId &&
+                    membership.Role == FamilyRole.Member),
+                invitation,
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenInvitationIsClaimedByAnotherRequest_ThrowsInvalidOperationException()
+    {
+        const string token = "valid-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        var invitation = new FamilyInvitation
+        {
+            FamilyId = _familyId,
+            InvitedByUserId = Guid.NewGuid(),
+            Email = "guest@example.com",
+            NormalizedEmail = "guest@example.com",
+            TokenHash = tokenHash,
+            ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(7)
+        };
+
+        _invitationRepository
+            .Setup(x => x.GetByTokenHashAsync(
+                tokenHash,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invitation);
+
+        _membershipRepository
+            .Setup(x => x.IsMemberAsync(
+                _familyId,
+                _userId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        _membershipRepository
+            .Setup(x => x.AddWithInvitationAsync(
+                It.IsAny<FamilyMembership>(),
+                It.IsAny<FamilyInvitation>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.AcceptAsync(token));
+
+        Assert.Equal(
+            FamilyInvitationStatus.Pending,
+            invitation.Status);
+
+        _membershipRepository.Verify(
+            x => x.AddWithInvitationAsync(
+                It.IsAny<FamilyMembership>(),
+                It.IsAny<FamilyInvitation>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WithEmptyToken_ThrowsArgumentException()
+    {
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => service.AcceptAsync(string.Empty));
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WithUnknownToken_ThrowsKeyNotFoundException()
+    {
+        const string token = "unknown-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        _invitationRepository
+            .Setup(x => x.GetByTokenHashAsync(
+                tokenHash,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((FamilyInvitation?)null);
+
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => service.AcceptAsync(token));
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WithNonPendingInvitation_ThrowsInvalidOperationException()
+    {
+        const string token = "accepted-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        var invitation = new FamilyInvitation
+        {
+            FamilyId = _familyId,
+            InvitedByUserId = Guid.NewGuid(),
+            Email = "guest@example.com",
+            NormalizedEmail = "guest@example.com",
+            TokenHash = tokenHash,
+            Status = FamilyInvitationStatus.Accepted,
+            ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(7)
+        };
+
+        _invitationRepository
+            .Setup(x => x.GetByTokenHashAsync(
+                tokenHash,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invitation);
+
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.AcceptAsync(token));
+
+        _membershipRepository.Verify(
+            x => x.AddWithInvitationAsync(
+                It.IsAny<FamilyMembership>(),
+                It.IsAny<FamilyInvitation>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WithExpiredInvitation_MarksInvitationExpiredAndThrows()
+    {
+        const string token = "expired-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        var invitation = new FamilyInvitation
+        {
+            FamilyId = _familyId,
+            InvitedByUserId = Guid.NewGuid(),
+            Email = "guest@example.com",
+            NormalizedEmail = "guest@example.com",
+            TokenHash = tokenHash,
+            ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(-1)
+        };
+
+        _invitationRepository
+            .Setup(x => x.GetByTokenHashAsync(
+                tokenHash,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invitation);
+
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.AcceptAsync(token));
+
+        Assert.Equal(
+            FamilyInvitationStatus.Expired,
+            invitation.Status);
+
+        _invitationRepository.Verify(
+            x => x.SaveChangesAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        _membershipRepository.Verify(
+            x => x.AddWithInvitationAsync(
+                It.IsAny<FamilyMembership>(),
+                It.IsAny<FamilyInvitation>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenCurrentUserNotFound_ThrowsUnauthorizedAccessException()
+    {
+        const string token = "valid-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        var invitation = new FamilyInvitation
+        {
+            FamilyId = _familyId,
+            InvitedByUserId = Guid.NewGuid(),
+            Email = "guest@example.com",
+            NormalizedEmail = "guest@example.com",
+            TokenHash = tokenHash,
+            ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(7)
+        };
+
+        _invitationRepository
+            .Setup(x => x.GetByTokenHashAsync(
+                tokenHash,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invitation);
+
+        var service = CreateService();
+
+        _userRepository
+            .Setup(x => x.GetByIdAsync(
+                _userId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((User?)null);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => service.AcceptAsync(token));
+
+        _membershipRepository.Verify(
+            x => x.AddWithInvitationAsync(
+                It.IsAny<FamilyMembership>(),
+                It.IsAny<FamilyInvitation>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenUserEmailIsNotVerified_ThrowsUnauthorizedAccessException()
+    {
+        const string token = "valid-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        var invitation = new FamilyInvitation
+        {
+            FamilyId = _familyId,
+            InvitedByUserId = Guid.NewGuid(),
+            Email = "guest@example.com",
+            NormalizedEmail = "guest@example.com",
+            TokenHash = tokenHash,
+            ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(7)
+        };
+
+        _invitationRepository
+            .Setup(x => x.GetByTokenHashAsync(
+                tokenHash,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invitation);
+
+        var service = CreateService();
+
+        _userRepository
+            .Setup(x => x.GetByIdAsync(
+                _userId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User
+            {
+                Id = _userId,
+                Email = "guest@example.com",
+                DisplayName = "Guest",
+                EmailVerifiedAtUtc = null
+            });
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => service.AcceptAsync(token));
+
+        _membershipRepository.Verify(
+            x => x.AddWithInvitationAsync(
+                It.IsAny<FamilyMembership>(),
+                It.IsAny<FamilyInvitation>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenUserEmailDoesNotMatchInvitation_ThrowsUnauthorizedAccessException()
+    {
+        const string token = "valid-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        var invitation = new FamilyInvitation
+        {
+            FamilyId = _familyId,
+            InvitedByUserId = Guid.NewGuid(),
+            Email = "guest@example.com",
+            NormalizedEmail = "guest@example.com",
+            TokenHash = tokenHash,
+            ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(7)
+        };
+
+        var service = CreateService();
+
+        _invitationRepository
+            .Setup(x => x.GetByTokenHashAsync(
+                tokenHash,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invitation);
+
+        _userRepository
+            .Setup(x => x.GetByIdAsync(
+                _userId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User
+            {
+                Id = _userId,
+                Email = "another@example.com",
+                DisplayName = "Guest",
+                EmailVerifiedAtUtc = DateTimeOffset.UtcNow
+            });
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => service.AcceptAsync(token));
+
+        _membershipRepository.Verify(
+            x => x.AddWithInvitationAsync(
+                It.IsAny<FamilyMembership>(),
+                It.IsAny<FamilyInvitation>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenUserIsAlreadyMember_ThrowsInvalidOperationException()
+    {
+        const string token = "valid-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        var invitation = new FamilyInvitation
+        {
+            FamilyId = _familyId,
+            InvitedByUserId = Guid.NewGuid(),
+            Email = "guest@example.com",
+            NormalizedEmail = "guest@example.com",
+            TokenHash = tokenHash,
+            ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(7)
+        };
+
+        var service = CreateService();
+
+        _invitationRepository
+            .Setup(x => x.GetByTokenHashAsync(
+                tokenHash,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invitation);
+
+        _membershipRepository
+            .Setup(x => x.IsMemberAsync(
+                _familyId,
+                _userId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.AcceptAsync(token));
+
+        _membershipRepository.Verify(
+            x => x.AddWithInvitationAsync(
+                It.IsAny<FamilyMembership>(),
+                It.IsAny<FamilyInvitation>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenUserIsNotAuthenticated_ThrowsUnauthorizedAccessException()
+    {
+        var service = CreateService();
+
+        _currentUser
+            .SetupGet(x => x.UserId)
+            .Returns(Guid.Empty);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => service.AcceptAsync("valid-invitation-token"));
+
+        _invitationRepository.Verify(
+            x => x.GetByTokenHashAsync(
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()),
             Times.Never);
     }
 }

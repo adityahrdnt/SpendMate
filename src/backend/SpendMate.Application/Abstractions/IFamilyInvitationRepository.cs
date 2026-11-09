@@ -4,6 +4,10 @@ namespace SpendMate.Application.Abstractions;
 
 public interface IFamilyInvitationRepository
 {
+    Task<FamilyInvitation?> GetByTokenHashAsync(
+        string tokenHash,
+        CancellationToken cancellationToken = default);
+
     Task<FamilyInvitation?> GetByIdAndFamilyAsync(
         Guid invitationId,
         Guid familyId,

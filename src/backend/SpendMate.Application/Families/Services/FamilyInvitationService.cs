@@ -11,6 +11,7 @@ public sealed class FamilyInvitationService(
     IFamilyRepository familyRepository,
     IFamilyMembershipRepository membershipRepository,
     IFamilyInvitationRepository invitationRepository,
+    IUserRepository userRepository,
     ICurrentUser currentUser,
     IEmailSender emailSender,
     IInvitationLinkBuilder invitationLinkBuilder)
@@ -181,6 +182,120 @@ public sealed class FamilyInvitationService(
         var hash = SHA256.HashData(bytes);
 
         return Convert.ToHexString(hash);
+    }
+
+    public async Task<FamilyInvitationResponse> AcceptAsync(
+        string token,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new ArgumentException(
+                "A valid invitation token is required.",
+                nameof(token));
+        }
+
+        var tokenHash = HashToken(token);
+
+        var invitation = await invitationRepository
+            .GetByTokenHashAsync(tokenHash, cancellationToken);
+
+        if (invitation is null)
+        {
+            throw new KeyNotFoundException(
+                "The invitation is invalid or no longer available.");
+        }
+
+        if (invitation.Status != FamilyInvitationStatus.Pending)
+        {
+            throw new InvalidOperationException(
+                "This invitation is no longer pending.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+
+        if (invitation.ExpiresAtUtc <= now)
+        {
+            invitation.Status = FamilyInvitationStatus.Expired;
+
+            await invitationRepository.SaveChangesAsync(
+                cancellationToken);
+
+            throw new InvalidOperationException(
+                "This invitation has expired.");
+        }
+
+        var user = await userRepository.GetByIdAsync(
+            currentUser.UserId,
+            cancellationToken);
+
+        if (user is null)
+        {
+            throw new UnauthorizedAccessException(
+                "The current user was not found.");
+        }
+
+        if (user.EmailVerifiedAtUtc is null)
+        {
+            throw new UnauthorizedAccessException(
+                "Email verification is required to accept invitations.");
+        }
+
+        var normalizedUserEmail = user.Email.Trim().ToLowerInvariant();
+
+        if (!string.Equals(
+            normalizedUserEmail,
+            invitation.NormalizedEmail,
+            StringComparison.Ordinal))
+        {
+            throw new UnauthorizedAccessException(
+                "The invitation email does not match the current account.");
+        }
+
+        var isAlreadyMember = await membershipRepository.IsMemberAsync(
+            invitation.FamilyId,
+            user.Id,
+            cancellationToken);
+
+        if (isAlreadyMember)
+        {
+            throw new InvalidOperationException(
+                "You are already a member of this family.");
+        }
+
+        var membership = new FamilyMembership
+        {
+            FamilyId = invitation.FamilyId,
+            UserId = user.Id,
+            Role = FamilyRole.Member,
+            JoinedAtUtc = now
+        };
+
+        var accepted = await membershipRepository.AddWithInvitationAsync(
+            membership,
+            invitation,
+            now,
+            cancellationToken);
+
+        if (!accepted)
+        {
+            throw new InvalidOperationException(
+                "This invitation is no longer available.");
+        }
+
+        invitation.Status = FamilyInvitationStatus.Accepted;
+        invitation.AcceptedAtUtc = now;
+        invitation.AcceptedByUserId = user.Id;
+
+        return new FamilyInvitationResponse(
+            invitation.Id,
+            invitation.FamilyId,
+            invitation.Email,
+            FamilyInvitationStatus.Accepted.ToString(),
+            invitation.CreatedAtUtc,
+            invitation.ExpiresAtUtc);
     }
 
     public async Task<FamilyInvitationResponse> RevokeAsync(

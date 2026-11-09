@@ -1,3 +1,5 @@
+using SpendMate.Domain.Entities;
+
 namespace SpendMate.Application.Abstractions;
 
 public interface IFamilyMembershipRepository
@@ -10,5 +12,11 @@ public interface IFamilyMembershipRepository
     Task<bool> IsMemberByEmailAsync(
         Guid familyId,
         string normalizedEmail,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> AddWithInvitationAsync(
+        FamilyMembership membership,
+        FamilyInvitation invitation,
+        DateTimeOffset acceptedAtUtc,
         CancellationToken cancellationToken = default);
 }

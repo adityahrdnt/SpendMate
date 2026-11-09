@@ -12,6 +12,39 @@ public static class FamilyInvitationEndpoints
             .WithTags("Family Invitations")
             .RequireAuthorization();
 
+        app.MapPost("/api/invitations/accept", async (
+            AcceptFamilyInvitationRequest request,
+            FamilyInvitationService invitationService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var result = await invitationService.AcceptAsync(
+                    request.Token,
+                    cancellationToken);
+
+                return Results.Ok(result);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Results.Unauthorized();
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        })
+        .WithTags("Family Invitations")
+        .RequireAuthorization();
+
         group.MapPost("/", async (
             Guid familyId,
             CreateFamilyInvitationRequest request,

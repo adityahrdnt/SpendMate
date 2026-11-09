@@ -9,6 +9,16 @@ namespace SpendMate.Infrastructure.Repositories;
 public sealed class FamilyInvitationRepository(
     SpendMateDbContext dbContext) : IFamilyInvitationRepository
 {
+    public Task<FamilyInvitation?> GetByTokenHashAsync(
+        string tokenHash,
+        CancellationToken cancellationToken = default)
+    {
+        return dbContext.FamilyInvitations
+            .SingleOrDefaultAsync(
+                invitation => invitation.TokenHash == tokenHash,
+                cancellationToken);
+    }
+
     public Task<FamilyInvitation?> GetByIdAndFamilyAsync(
         Guid invitationId,
         Guid familyId,
