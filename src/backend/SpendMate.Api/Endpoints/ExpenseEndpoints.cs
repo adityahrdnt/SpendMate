@@ -9,7 +9,8 @@ public static class ExpenseEndpoints
         this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/families/{familyId:guid}/expenses")
-            .WithTags("Expenses");
+            .WithTags("Expenses")
+            .RequireAuthorization();
 
         group.MapGet("/", async (
             Guid familyId,

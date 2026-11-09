@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -9,6 +11,8 @@ using SpendMate.Application.Abstractions;
 using SpendMate.Domain.Entities;
 using SpendMate.Domain.Enums;
 using SpendMate.Infrastructure.Data;
+using SpendMate.IntegrationTests.Support.Authentication;
+using System.Net.Http.Json;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -27,8 +31,14 @@ public sealed class SpendMateApiFactory
     public static readonly Guid TestUserId =
         Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
+    public static readonly Guid SecondTestUserId =
+        Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+
     public static readonly Guid TestFamilyId =
         Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+
+    public static readonly Guid TestSharedFamilyId =
+        Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
 
     public static readonly Guid NonMemberFamilyId =
         Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
@@ -36,14 +46,46 @@ public sealed class SpendMateApiFactory
     public static readonly Guid CrossFamilyId =
         Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
 
+    public FakeEmailSender EmailSender =>
+        Services.GetRequiredService<FakeEmailSender>();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
 
         builder.ConfigureTestServices(services =>
         {
-            services.RemoveAll<ICurrentUser>();
-            services.AddScoped<ICurrentUser, TestCurrentUser>();
+            services
+                .AddAuthentication(options =>
+                {
+                    options.DefaultScheme = "TestOrCookie";
+                    options.DefaultAuthenticateScheme = "TestOrCookie";
+                    options.DefaultChallengeScheme = "TestOrCookie";
+                    options.DefaultForbidScheme = "TestOrCookie";
+                })
+                .AddPolicyScheme(
+                    "TestOrCookie",
+                    "Test or Cookie Authentication",
+                    options =>
+                    {
+                        options.ForwardDefaultSelector = context =>
+                            context.Request.Headers.ContainsKey(
+                                TestAuthenticationHandler.UserIdHeader)
+                                ? TestAuthenticationHandler.SchemeName
+                                : CookieAuthenticationDefaults.AuthenticationScheme;
+                    })
+                .AddScheme<
+                    AuthenticationSchemeOptions,
+                    TestAuthenticationHandler>(
+                    TestAuthenticationHandler.SchemeName,
+                    _ => { });
+
+            services.RemoveAll<IEmailSender>();
+
+            services.AddSingleton<FakeEmailSender>();
+
+            services.AddSingleton<IEmailSender>(serviceProvider =>
+                serviceProvider.GetRequiredService<FakeEmailSender>());
         });
     }
 
@@ -59,17 +101,14 @@ public sealed class SpendMateApiFactory
 
         try
         {
-            // Provide the connection string before Program.cs starts.
             Environment.SetEnvironmentVariable(
                 connectionStringVariable,
                 _postgres.GetConnectionString());
 
-            // Starts the API host and applies database migrations.
             using var client = CreateClient();
         }
         finally
         {
-            // Restore the original process environment.
             Environment.SetEnvironmentVariable(
                 connectionStringVariable,
                 originalConnectionString);
@@ -87,21 +126,41 @@ public sealed class SpendMateApiFactory
             DisplayName = "Integration Test User"
         });
 
+        dbContext.Users.Add(new User
+        {
+            Id = SecondTestUserId,
+            Email = "integration-test-user-b@spendmate.local",
+            DisplayName = "Integration Test User B"
+        });
+
         dbContext.Families.AddRange(
             new Family
             {
                 Id = TestFamilyId,
-                Name = "Integration Test Family"
+                Name = "Integration Test Family",
+                Type = FamilyType.Personal,
+                PersonalOwnerUserId = TestUserId
+            },
+            new Family
+            {
+                Id = TestSharedFamilyId,
+                Name = "Integration Test Shared Family",
+                Type = FamilyType.Shared,
+                PersonalOwnerUserId = null
             },
             new Family
             {
                 Id = NonMemberFamilyId,
-                Name = "Non-member Test Family"
+                Name = "Non-member Test Family",
+                Type = FamilyType.Shared,
+                PersonalOwnerUserId = null
             },
             new Family
             {
                 Id = CrossFamilyId,
-                Name = "Cross-family Test Family"
+                Name = "Cross-family Test Family",
+                Type = FamilyType.Personal,
+                PersonalOwnerUserId = SecondTestUserId
             });
 
         dbContext.FamilyMemberships.Add(new FamilyMembership
@@ -113,8 +172,22 @@ public sealed class SpendMateApiFactory
 
         dbContext.FamilyMemberships.Add(new FamilyMembership
         {
-            FamilyId = CrossFamilyId,
+            FamilyId = TestSharedFamilyId,
             UserId = TestUserId,
+            Role = FamilyRole.Owner
+        });
+
+        dbContext.FamilyMemberships.Add(new FamilyMembership
+        {
+            FamilyId = CrossFamilyId,
+            UserId = SecondTestUserId,
+            Role = FamilyRole.Owner
+        });
+
+        dbContext.FamilyMemberships.Add(new FamilyMembership
+        {
+            FamilyId = NonMemberFamilyId,
+            UserId = SecondTestUserId,
             Role = FamilyRole.Owner
         });
 
@@ -126,9 +199,53 @@ public sealed class SpendMateApiFactory
         await base.DisposeAsync();
         await _postgres.DisposeAsync();
     }
-}
 
-public sealed class TestCurrentUser : ICurrentUser
-{
-    public Guid UserId => SpendMateApiFactory.TestUserId;
+    public HttpClient CreateAuthenticatedClient(Guid? userId = null)
+    {
+        var client = CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        client.DefaultRequestHeaders.Add(
+            TestAuthenticationHandler.UserIdHeader,
+            (userId ?? TestUserId).ToString());
+
+        return client;
+    }
+
+    public async Task<HttpClient> CreateAuthenticatedClientWithCsrfAsync(
+    Guid? userId = null)
+    {
+        var client = CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+
+        client.DefaultRequestHeaders.Add(
+            TestAuthenticationHandler.UserIdHeader,
+            (userId ?? TestUserId).ToString());
+
+        var csrfResponse = await client.GetAsync("/api/auth/csrf");
+        csrfResponse.EnsureSuccessStatusCode();
+
+        var csrfToken = await csrfResponse.Content
+            .ReadFromJsonAsync<CsrfTokenResponse>();
+
+        if (string.IsNullOrWhiteSpace(csrfToken?.RequestToken))
+        {
+            client.Dispose();
+
+            throw new InvalidOperationException(
+                "The CSRF endpoint did not return a valid request token.");
+        }
+
+        client.DefaultRequestHeaders.Add(
+            "X-CSRF-TOKEN",
+            csrfToken.RequestToken);
+
+        return client;
+    }
+
+    private sealed record CsrfTokenResponse(string RequestToken);
 }

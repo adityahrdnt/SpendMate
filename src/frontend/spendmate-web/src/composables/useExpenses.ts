@@ -1,4 +1,4 @@
-import { ref } from "vue";
+import { ref, toValue, type MaybeRefOrGetter } from "vue";
 import {
   createExpense as createExpenseApi,
   deleteExpense as deleteExpenseApi,
@@ -9,7 +9,10 @@ import {
 import type { Expense } from "../types/expense";
 import { mapExpense } from "../utils/expenseMapper";
 
-export function useExpenses() {
+export function useExpenses(
+  familyId: MaybeRefOrGetter<string>,
+  currentUserId: MaybeRefOrGetter<string>,
+) {
   const expenses = ref<Expense[]>([]);
 
   const isLoading = ref(true);
@@ -21,12 +24,21 @@ export function useExpenses() {
   const deleteErrorMessage = ref("");
 
   async function loadExpenses() {
+    const activeFamilyId = toValue(familyId);
+    const activeUserId = toValue(currentUserId);
+
+    if (!activeFamilyId || !activeUserId) {
+      expenses.value = [];
+      isLoading.value = false;
+      return;
+    }
+
     isLoading.value = true;
     errorMessage.value = "";
 
     try {
-      const response = await getExpenses();
-      expenses.value = response.map(mapExpense);
+      const response = await getExpenses(activeFamilyId);
+      expenses.value = response.map((item) => mapExpense(item, activeUserId));
     } catch (error) {
       errorMessage.value =
         error instanceof Error
@@ -41,15 +53,23 @@ export function useExpenses() {
     request: CreateExpenseRequest,
     expenseId?: string,
   ): Promise<Expense | null> {
+    const activeFamilyId = toValue(familyId);
+    const activeUserId = toValue(currentUserId);
+
+    if (!activeFamilyId || !activeUserId) {
+      saveErrorMessage.value = "An authenticated family session is required.";
+      return null;
+    }
+
     isSaving.value = true;
     saveErrorMessage.value = "";
 
     try {
       const response = expenseId
-        ? await updateExpenseApi(expenseId, request)
-        : await createExpenseApi(request);
+        ? await updateExpenseApi(activeFamilyId, expenseId, request)
+        : await createExpenseApi(activeFamilyId, request);
 
-      const savedExpense = mapExpense(response);
+      const savedExpense = mapExpense(response, activeUserId);
 
       expenses.value = [
         savedExpense,
@@ -70,11 +90,18 @@ export function useExpenses() {
   }
 
   async function removeExpense(expenseId: string): Promise<boolean> {
+    const activeFamilyId = toValue(familyId);
+
+    if (!activeFamilyId) {
+      deleteErrorMessage.value = "An authenticated family session is required.";
+      return false;
+    }
+
     deletingExpenseId.value = expenseId;
     deleteErrorMessage.value = "";
 
     try {
-      await deleteExpenseApi(expenseId);
+      await deleteExpenseApi(activeFamilyId, expenseId);
 
       expenses.value = expenses.value.filter(
         (expense) => expense.id !== expenseId,

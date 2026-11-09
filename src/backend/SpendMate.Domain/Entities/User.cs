@@ -8,8 +8,16 @@ public class User
 
     public required string DisplayName { get; set; }
 
+    public string? PasswordHash { get; set; }
+
     public DateTimeOffset CreatedAtUtc { get; set; } =
         DateTimeOffset.UtcNow;
+
+    public DateTimeOffset? EmailVerifiedAtUtc { get; set; }
+
+    public string? EmailVerificationTokenHash { get; set; }
+
+    public DateTimeOffset? EmailVerificationExpiresAtUtc { get; set; }
 
     public ICollection<FamilyMembership> Memberships { get; set; } =
         new List<FamilyMembership>();

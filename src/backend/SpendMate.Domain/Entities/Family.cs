@@ -1,3 +1,5 @@
+using SpendMate.Domain.Enums;
+
 namespace SpendMate.Domain.Entities;
 
 public class Family
@@ -14,4 +16,7 @@ public class Family
 
     public ICollection<Expense> Expenses { get; set; } =
         new List<Expense>();
+
+    public FamilyType Type { get; set; } = FamilyType.Personal;
+    public Guid? PersonalOwnerUserId { get; set; }
 }

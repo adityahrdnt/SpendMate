@@ -6,8 +6,9 @@ import {
   deleteExpense,
   getExpenses,
   updateExpense,
-  DEVELOPMENT_USER_ID,
 } from "./services/expenseApi";
+
+import { getCurrentUser } from "./services/authApi";
 
 vi.mock("./services/expenseApi", () => ({
   getExpenses: vi.fn(),
@@ -17,10 +18,28 @@ vi.mock("./services/expenseApi", () => ({
   DEVELOPMENT_USER_ID: "11111111-1111-1111-1111-111111111111",
 }));
 
+const TEST_USER_ID = "11111111-1111-1111-1111-111111111111";
+const TEST_FAMILY_ID = "22222222-2222-2222-2222-222222222222";
+
+const testUser = {
+  userId: TEST_USER_ID,
+  email: "aditya@example.com",
+  displayName: "Aditya",
+  familyId: TEST_FAMILY_ID,
+  familyName: "Herdianto Family",
+};
+
+vi.mock("./services/authApi", () => ({
+  getCurrentUser: vi.fn(),
+  login: vi.fn(),
+  register: vi.fn(),
+  logout: vi.fn(),
+}));
+
 const sampleExpense = {
   id: "f8446c14-22d0-4590-9c62-fd02c3008dc6",
-  familyId: "22222222-2222-2222-2222-222222222222",
-  createdByUserId: DEVELOPMENT_USER_ID,
+  familyId: TEST_FAMILY_ID,
+  createdByUserId: TEST_USER_ID,
   amount: 35000,
   category: "Food",
   description: "Lunch",
@@ -35,6 +54,8 @@ describe("SpendMate dashboard", () => {
     vi.setSystemTime(new Date(2026, 9, 29, 12));
 
     vi.resetAllMocks();
+
+    vi.mocked(getCurrentUser).mockResolvedValue(testUser);
     vi.mocked(getExpenses).mockResolvedValue([]);
     vi.mocked(deleteExpense).mockResolvedValue(undefined);
   });
@@ -218,6 +239,7 @@ describe("SpendMate dashboard", () => {
     vi.mocked(getExpenses).mockReturnValue(new Promise(() => {}));
 
     const wrapper = mount(App);
+    await flushPromises();
 
     expect(wrapper.get('[role="status"]').text()).toContain(
       "Loading family expenses...",
@@ -259,7 +281,7 @@ describe("SpendMate dashboard", () => {
     await wrapper.get("form.expense-form").trigger("submit");
     await flushPromises();
 
-    expect(createExpense).toHaveBeenCalledWith({
+    expect(createExpense).toHaveBeenCalledWith(TEST_FAMILY_ID, {
       amount: 5000,
       category: "Transport",
       description: "Grab",
@@ -397,12 +419,16 @@ describe("SpendMate dashboard", () => {
     await wrapper.get("form.expense-form").trigger("submit");
     await flushPromises();
 
-    expect(updateExpense).toHaveBeenCalledWith(sampleExpense.id, {
-      amount: 45000,
-      category: "Groceries",
-      description: "Weekly groceries",
-      expenseDate: "2026-10-29",
-    });
+    expect(updateExpense).toHaveBeenCalledWith(
+      TEST_FAMILY_ID,
+      sampleExpense.id,
+      {
+        amount: 45000,
+        category: "Groceries",
+        description: "Weekly groceries",
+        expenseDate: "2026-10-29",
+      },
+    );
     expect(wrapper.text()).toContain("Weekly groceries");
     expect(wrapper.text().replace(/\s/g, "")).toContain("Rp45.000");
     expect(wrapper.text()).not.toContain("Lunch");
@@ -461,7 +487,10 @@ describe("SpendMate dashboard", () => {
     expect(confirmSpy).toHaveBeenCalledWith(
       'Delete "Lunch"? This action cannot be undone.',
     );
-    expect(deleteExpense).toHaveBeenCalledWith(sampleExpense.id);
+    expect(deleteExpense).toHaveBeenCalledWith(
+      TEST_FAMILY_ID,
+      sampleExpense.id,
+    );
     expect(wrapper.text()).not.toContain("Lunch");
 
     wrapper.unmount();
@@ -516,7 +545,10 @@ describe("SpendMate dashboard", () => {
     await deleteButton!.trigger("click");
     await flushPromises();
 
-    expect(deleteExpense).toHaveBeenCalledWith(sampleExpense.id);
+    expect(deleteExpense).toHaveBeenCalledWith(
+      TEST_FAMILY_ID,
+      sampleExpense.id,
+    );
     expect(wrapper.text()).toContain("Delete failed");
     expect(wrapper.text()).toContain("Lunch");
 
@@ -862,11 +894,11 @@ describe("SpendMate dashboard", () => {
     );
     expect(wrapper.get('[role="status"]').text()).toMatch(/Rp\s*35\.000/);
 
-    expect(createExpense).toHaveBeenCalledWith({
+    expect(createExpense).toHaveBeenCalledWith(TEST_FAMILY_ID, {
       amount: 35000,
       category: "Other",
       description: "Makan siang",
-      expenseDate: expect.any(String),
+      expenseDate: "2026-10-29",
     });
 
     expect(wrapper.text()).toContain("Makan siang");
