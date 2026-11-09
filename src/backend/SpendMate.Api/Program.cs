@@ -78,6 +78,9 @@ builder.Services
         name: "postgres",
         tags: ["ready"]);
 
+builder.Services.AddSingleton<TimeProvider>(
+    TimeProvider.System);
+
 var app = builder.Build();
 
 if (app.Environment.IsEnvironment("Testing"))

@@ -30,6 +30,13 @@ public static class DependencyInjection
             configuration.GetSection(InvitationLinkOptions.SectionName));
 
         services.AddScoped<IInvitationLinkBuilder, InvitationLinkBuilder>();
+        services.Configure<EmailVerificationLinkOptions>(
+            configuration.GetSection(
+                EmailVerificationLinkOptions.SectionName));
+
+        services.AddScoped<
+            IEmailVerificationLinkBuilder,
+            EmailVerificationLinkBuilder>();
 
         return services;
     }

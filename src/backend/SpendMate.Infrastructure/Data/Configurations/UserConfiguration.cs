@@ -25,6 +25,20 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.CreatedAtUtc)
             .IsRequired();
 
+        builder.Property(x => x.EmailVerifiedAtUtc)
+            .IsRequired(false);
+
+        builder.Property(x => x.EmailVerificationTokenHash)
+            .HasMaxLength(64)
+            .IsRequired(false);
+
+        builder.Property(x => x.EmailVerificationExpiresAtUtc)
+            .IsRequired(false);
+
+        builder.HasIndex(x => x.EmailVerificationTokenHash)
+            .IsUnique()
+            .HasFilter("\"EmailVerificationTokenHash\" IS NOT NULL");
+
         builder.HasIndex(x => x.Email)
             .IsUnique();
     }

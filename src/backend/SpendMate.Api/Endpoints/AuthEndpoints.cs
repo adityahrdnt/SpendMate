@@ -19,7 +19,9 @@ public static class AuthEndpoints
             RegisterRequest request,
             AuthService authService,
             HttpContext httpContext,
-            CancellationToken cancellationToken) =>
+            CancellationToken cancellationToken,
+            EmailVerificationService emailVerificationService,
+            ILogger<Program> logger) =>
         {
             try
             {
@@ -27,6 +29,20 @@ public static class AuthEndpoints
                     request, cancellationToken);
 
                 await SignInAsync(httpContext, authResponse);
+
+                try
+                {
+                    await emailVerificationService.SendVerificationAsync(
+                        authResponse.UserId,
+                        cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(
+                        ex,
+                        "Failed to send email verification for user {UserId}.",
+                        authResponse.UserId);
+                }
 
                 return Results.Ok(authResponse);
             }
@@ -63,6 +79,36 @@ public static class AuthEndpoints
             }
         })
         .AllowAnonymous();
+
+        // Verify email
+        group.MapPost("/verify-email", async (
+            VerifyEmailRequest request,
+            EmailVerificationService emailVerificationService,
+            CancellationToken cancellationToken) =>
+        {
+            var verified = await emailVerificationService.VerifyAsync(
+                request.Token,
+                cancellationToken);
+
+            return verified
+                ? Results.Ok(new { message = "Email verified successfully." })
+                : Results.BadRequest(new { error = "Invalid or expired verification token." });
+        })
+        .AllowAnonymous();
+
+        // Resend email verification
+        group.MapPost("/resend-verification", async (
+            EmailVerificationService emailVerificationService,
+            SpendMate.Application.Abstractions.ICurrentUser currentUser,
+            CancellationToken cancellationToken) =>
+        {
+            await emailVerificationService.ResendVerificationAsync(
+                currentUser.UserId,
+                cancellationToken);
+
+            return Results.NoContent();
+        })
+        .RequireAuthorization();
 
         // Current authenticated user
         app.MapGet("/api/me", (HttpContext httpContext) =>
