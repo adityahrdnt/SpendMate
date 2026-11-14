@@ -4,6 +4,8 @@ public class User
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
+    public Guid? ActiveFamilyId { get; set; }
+
     public required string Email { get; set; }
 
     public required string DisplayName { get; set; }

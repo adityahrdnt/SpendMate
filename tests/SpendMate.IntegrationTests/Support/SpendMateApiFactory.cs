@@ -192,6 +192,19 @@ public sealed class SpendMateApiFactory
         });
 
         await dbContext.SaveChangesAsync();
+
+        // Set each test user's initial Active Family to their Personal Family.
+        var testUser = await dbContext.Users
+            .SingleAsync(x => x.Id == TestUserId);
+
+        testUser.ActiveFamilyId = TestFamilyId;
+
+        var secondTestUser = await dbContext.Users
+            .SingleAsync(x => x.Id == SecondTestUserId);
+
+        secondTestUser.ActiveFamilyId = CrossFamilyId;
+
+        await dbContext.SaveChangesAsync();
     }
 
     async Task IAsyncLifetime.DisposeAsync()

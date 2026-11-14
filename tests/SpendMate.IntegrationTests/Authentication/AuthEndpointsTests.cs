@@ -1,11 +1,15 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SpendMate.Application.Abstractions;
 using SpendMate.Application.Auth.Dtos;
 using SpendMate.Application.Auth.Services;
+using SpendMate.Application.Families.Dtos;
+using SpendMate.Infrastructure.Data;
 using SpendMate.IntegrationTests.Support;
+using SpendMate.IntegrationTests.Support.Authentication;
 using Xunit;
 
 namespace SpendMate.IntegrationTests.Authentication;
@@ -278,6 +282,132 @@ public sealed class AuthEndpointsTests(
         Assert.Equal(HttpStatusCode.Unauthorized, meResponse.StatusCode);
     }
 
+    [Fact]
+    public async Task GetMe_WithoutAuthentication_ReturnsUnauthorized()
+    {
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://localhost")
+            });
+
+        var response = await client.GetAsync("/api/me");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetActiveFamily_WithValidMembership_UpdatesActiveFamilyAndGetMe()
+    {
+        // Arrange
+        using var client =
+            await factory.CreateAuthenticatedClientWithCsrfAsync(
+                SpendMateApiFactory.TestUserId);
+
+        var request = new SetActiveFamilyRequest(
+            SpendMateApiFactory.TestSharedFamilyId);
+
+        // Act
+        var response = await client.PutAsJsonAsync(
+            "/api/me/active-family",
+            request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider
+                .GetRequiredService<SpendMateDbContext>();
+
+            var user = await dbContext.Users
+                .SingleAsync(x =>
+                    x.Id == SpendMateApiFactory.TestUserId);
+
+            Assert.Equal(
+                SpendMateApiFactory.TestSharedFamilyId,
+                user.ActiveFamilyId);
+        }
+
+        var meResponse = await client.GetAsync("/api/me");
+
+        Assert.Equal(HttpStatusCode.OK, meResponse.StatusCode);
+
+        var currentUser =
+            await meResponse.Content.ReadFromJsonAsync<AuthResponse>();
+
+        Assert.NotNull(currentUser);
+
+        Assert.Equal(
+            SpendMateApiFactory.TestSharedFamilyId,
+            currentUser.FamilyId);
+    }
+
+    [Fact]
+    public async Task SetActiveFamily_WhenFamilyDoesNotExist_ReturnsNotFound()
+    {
+        // Arrange
+        using var client =
+            await factory.CreateAuthenticatedClientWithCsrfAsync(
+                SpendMateApiFactory.TestUserId);
+
+        var request = new SetActiveFamilyRequest(Guid.NewGuid());
+
+        // Act
+        var response = await client.PutAsJsonAsync(
+            "/api/me/active-family",
+            request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetActiveFamily_WhenUserIsNotMember_ReturnsUnauthorized()
+    {
+        // Arrange
+        using var client =
+            await factory.CreateAuthenticatedClientWithCsrfAsync(
+                SpendMateApiFactory.TestUserId);
+
+        var request = new SetActiveFamilyRequest(
+            SpendMateApiFactory.NonMemberFamilyId);
+
+        // Act
+        var response = await client.PutAsJsonAsync(
+            "/api/me/active-family",
+            request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetActiveFamily_WithoutCsrfToken_ReturnsBadRequest()
+    {
+        // Arrange
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://localhost")
+            });
+
+        client.DefaultRequestHeaders.Add(
+            TestAuthenticationHandler.UserIdHeader,
+            SpendMateApiFactory.TestUserId.ToString());
+
+        var request = new SetActiveFamilyRequest(
+            SpendMateApiFactory.TestSharedFamilyId);
+
+        // Act
+        var response = await client.PutAsJsonAsync(
+            "/api/me/active-family",
+            request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     private async Task RefreshCsrfTokenAsync(HttpClient client)
     {
         var csrfResponse = await client.GetAsync("/api/auth/csrf");
@@ -293,20 +423,6 @@ public sealed class AuthEndpointsTests(
         client.DefaultRequestHeaders.Add(
             "X-CSRF-TOKEN",
             csrfResult.RequestToken);
-    }
-
-    [Fact]
-    public async Task GetMe_WithoutAuthentication_ReturnsUnauthorized()
-    {
-        using var client = factory.CreateClient(
-            new WebApplicationFactoryClientOptions
-            {
-                BaseAddress = new Uri("https://localhost")
-            });
-
-        var response = await client.GetAsync("/api/me");
-
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     private sealed record CsrfTokenResponse(string RequestToken);

@@ -193,6 +193,9 @@ namespace SpendMate.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("ActiveFamilyId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -221,6 +224,8 @@ namespace SpendMate.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(500)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ActiveFamilyId");
 
                     b.HasIndex("Email")
                         .IsUnique();
@@ -302,6 +307,14 @@ namespace SpendMate.Infrastructure.Data.Migrations
                     b.Navigation("Family");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("SpendMate.Domain.Entities.User", b =>
+                {
+                    b.HasOne("SpendMate.Domain.Entities.Family", null)
+                        .WithMany()
+                        .HasForeignKey("ActiveFamilyId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("SpendMate.Domain.Entities.Family", b =>

@@ -338,24 +338,127 @@ public class FamilyServiceTests
     }
 
     [Fact]
+    public async Task RemoveMemberAsync_WhenPersonalFamilyNotFound_ThrowsInvalidOperationException()
+    {
+        _membershipRepository
+            .Setup(x => x.RemoveMemberAsync(
+                It.IsAny<Guid>(),
+                _userId,
+                It.IsAny<Guid>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+                FamilyMembershipOperationResult.PersonalFamilyNotFound);
+
+        var service = CreateService();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RemoveMemberAsync(Guid.NewGuid(), Guid.NewGuid()));
+
+        Assert.Equal(
+            "The target user's Personal Family could not be found.",
+            exception.Message);
+    }
+
+
+    [Fact]
+    public async Task SetActiveFamilyAsync_WhenRepositoryReturnsSuccess_CompletesSuccessfully()
+    {
+        var familyId = Guid.NewGuid();
+
+        _membershipRepository
+            .Setup(x => x.SetActiveFamilyAsync(
+                _userId,
+                familyId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ActiveFamilyOperationResult.Success);
+
+        var service = CreateService();
+
+        await service.SetActiveFamilyAsync(familyId);
+
+        _membershipRepository.Verify(
+            x => x.SetActiveFamilyAsync(
+                _userId,
+                familyId,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SetActiveFamilyAsync_WhenFamilyNotFound_ThrowsKeyNotFoundException()
+    {
+        var familyId = Guid.NewGuid();
+
+        _membershipRepository
+            .Setup(x => x.SetActiveFamilyAsync(
+                _userId,
+                familyId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ActiveFamilyOperationResult.FamilyNotFound);
+
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+            service.SetActiveFamilyAsync(familyId));
+    }
+
+    [Fact]
+    public async Task SetActiveFamilyAsync_WhenUserIsNotMember_ThrowsUnauthorizedAccessException()
+    {
+        var familyId = Guid.NewGuid();
+
+        _membershipRepository
+            .Setup(x => x.SetActiveFamilyAsync(
+                _userId,
+                familyId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ActiveFamilyOperationResult.MembershipNotFound);
+
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.SetActiveFamilyAsync(familyId));
+    }
+
+    [Fact]
+    public async Task SetActiveFamilyAsync_WhenUserIsUnauthenticated_ThrowsUnauthorizedAccessException()
+    {
+        var familyId = Guid.NewGuid();
+
+        var service = CreateService();
+
+        _currentUser.SetupGet(x => x.UserId).Returns(Guid.Empty);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.SetActiveFamilyAsync(familyId));
+
+        _membershipRepository.Verify(
+            x => x.SetActiveFamilyAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<Guid>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task GetMembersAsync_WhenUserIsSharedFamilyMember_ReturnsMembers()
     {
         var familyId = Guid.NewGuid();
 
         var memberships = new List<FamilyMembership>
-    {
-        new()
         {
-            FamilyId = familyId,
-            UserId = _userId,
-            Role = FamilyRole.Owner,
-            User = new User
+            new()
             {
-                Email = "owner@example.com",
-                DisplayName = "Family Owner"
+                FamilyId = familyId,
+                UserId = _userId,
+                Role = FamilyRole.Owner,
+                User = new User
+                {
+                    Email = "owner@example.com",
+                    DisplayName = "Family Owner"
+                }
             }
-        }
-    };
+        };
 
         _membershipRepository
             .Setup(x => x.IsSharedFamilyMemberAsync(

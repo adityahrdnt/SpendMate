@@ -67,8 +67,9 @@ public sealed class AuthService(
         user.Memberships.Add(membership);
         family.Memberships.Add(membership);
 
-        await userRepository.AddAsync(
+        await userRepository.AddWithActiveFamilyAsync(
             user,
+            family.Id,
             cancellationToken);
 
         return new AuthResponse(
@@ -109,14 +110,67 @@ public sealed class AuthService(
         }
 
         var membership = user.Memberships
-            .SingleOrDefault(x =>
-                x.Family.Type == FamilyType.Personal &&
-                x.Family.PersonalOwnerUserId == user.Id);
+            .SingleOrDefault(x => x.FamilyId == user.ActiveFamilyId);
 
         if (membership is null)
         {
+            membership = user.Memberships
+                .SingleOrDefault(x =>
+                    x.Family.Type == FamilyType.Personal &&
+                    x.Family.PersonalOwnerUserId == user.Id);
+
+            if (membership is null)
+            {
+                throw new UnauthorizedAccessException(
+                    "The user does not belong to a family.");
+            }
+
+            user.ActiveFamilyId = membership.FamilyId;
+
+            await userRepository.SaveChangesAsync(cancellationToken);
+        }
+
+        return new AuthResponse(
+            user.Id,
+            user.Email,
+            user.DisplayName,
+            membership.FamilyId,
+            membership.Family.Name);
+    }
+
+    public async Task<AuthResponse> GetCurrentUserAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await userRepository.GetByIdWithMembershipsAsync(
+            userId,
+            cancellationToken);
+
+        if (user is null)
+        {
             throw new UnauthorizedAccessException(
-                "The user does not belong to a family.");
+                "User not found.");
+        }
+
+        var membership = user.Memberships
+            .SingleOrDefault(x => x.FamilyId == user.ActiveFamilyId);
+
+        if (membership is null)
+        {
+            membership = user.Memberships
+                .SingleOrDefault(x =>
+                    x.Family.Type == FamilyType.Personal &&
+                    x.Family.PersonalOwnerUserId == user.Id);
+
+            if (membership is null)
+            {
+                throw new UnauthorizedAccessException(
+                    "The user does not belong to a family.");
+            }
+
+            user.ActiveFamilyId = membership.FamilyId;
+
+            await userRepository.SaveChangesAsync(cancellationToken);
         }
 
         return new AuthResponse(

@@ -38,6 +38,11 @@ public interface IFamilyMembershipRepository
         Guid targetUserId,
         CancellationToken cancellationToken = default);
 
+    Task<ActiveFamilyOperationResult> SetActiveFamilyAsync(
+        Guid userId,
+        Guid familyId,
+        CancellationToken cancellationToken = default);
+
     Task<bool> IsSharedFamilyMemberAsync(
         Guid familyId,
         Guid userId,

@@ -154,9 +154,43 @@ public sealed class FamilyService(
                 throw new InvalidOperationException(
                     "A family must have at least one Owner.");
 
+            case FamilyMembershipOperationResult.PersonalFamilyNotFound:
+                throw new InvalidOperationException(
+                    "The target user's Personal Family could not be found.");
+
             default:
                 throw new InvalidOperationException(
                     "The family membership could not be removed.");
+        }
+    }
+
+    public async Task SetActiveFamilyAsync(
+        Guid familyId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+
+        var result = await membershipRepository.SetActiveFamilyAsync(
+            currentUser.UserId,
+            familyId,
+            cancellationToken);
+
+        switch (result)
+        {
+            case ActiveFamilyOperationResult.Success:
+                return;
+
+            case ActiveFamilyOperationResult.FamilyNotFound:
+                throw new KeyNotFoundException(
+                    "The family was not found.");
+
+            case ActiveFamilyOperationResult.MembershipNotFound:
+                throw new UnauthorizedAccessException(
+                    "You are not a member of this family.");
+
+            default:
+                throw new InvalidOperationException(
+                    "The active family could not be changed.");
         }
     }
 

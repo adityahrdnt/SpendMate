@@ -9,6 +9,7 @@
   import type { LoginRequest, RegisterRequest } from './types/auth'
   import type { Expense } from './types/expense'
   import { useExpenses } from './composables/useExpenses'
+  import { useFamilies } from './composables/useFamilies'
   import { formatCurrency, formatDate } from './utils/formatters'
   import { computed, onMounted, ref } from 'vue'
 
@@ -23,6 +24,7 @@
     status: authStatus,
     errorMessage: authErrorMessage,
     initialize,
+    refreshCurrentUser,
     login,
     register,
     logout,
@@ -30,10 +32,25 @@
 
   const isAuthSubmitting = ref(false)
 
+  const {
+    families,
+    isLoadingFamilies,
+    isSwitchingFamily,
+    isCreatingFamily,
+    errorMessage: familyErrorMessage,
+    loadFamilies,
+    switchActiveFamily,
+    createFamily,
+  } = useFamilies()
+
+  const isFamilyMenuOpen = ref(false)
+
   const familyId = computed(() => user.value?.familyId ?? '')
   const currentUserId = computed(() => user.value?.userId ?? '')
   const displayName = computed(() => user.value?.displayName ?? '')
   const familyName = computed(() => user.value?.familyName ?? '')
+  const isCreateFamilyFormOpen = ref(false)
+  const newFamilyName = ref('')
 
   const userInitial = computed(() =>
     displayName.value.trim().charAt(0).toUpperCase() || '?',
@@ -50,7 +67,10 @@
       const success = await login(request)
 
       if (success) {
-        await loadExpenses()
+        await Promise.all([
+          loadFamilies(),
+          loadExpenses(),
+        ])
       }
     } finally {
       isAuthSubmitting.value = false
@@ -64,7 +84,10 @@
       const success = await register(request)
 
       if (success) {
-        await loadExpenses()
+        await Promise.all([
+          loadFamilies(),
+          loadExpenses(),
+        ])
       }
     } finally {
       isAuthSubmitting.value = false
@@ -76,9 +99,54 @@
 
     if (success) {
       expenses.value = []
+      families.value = []
+      isFamilyMenuOpen.value = false
       activePage.value = 'Dashboard'
       selectedFilter.value = 'All'
     }
+  }
+
+  async function handleSwitchFamily(selectedFamilyId: string) {
+    if (
+      selectedFamilyId === familyId.value
+      || isSwitchingFamily.value
+    ) {
+      isFamilyMenuOpen.value = false
+      return
+    }
+
+    const success = await switchActiveFamily(selectedFamilyId)
+
+    if (!success) return
+
+    const refreshed = await refreshCurrentUser()
+
+    if (!refreshed) {
+      familyErrorMessage.value =
+        authErrorMessage.value
+        || 'Family changed, but the current user could not be refreshed. Please try again.'
+      return
+    }
+
+    await loadExpenses()
+    isFamilyMenuOpen.value = false
+  }
+
+  async function handleCreateFamily() {
+    const name = newFamilyName.value.trim()
+
+    if (!name || isCreatingFamily.value) {
+      return
+    }
+
+    const success = await createFamily(name)
+
+    if (!success) {
+      return
+    }
+
+    newFamilyName.value = ''
+    isCreateFamilyFormOpen.value = false
   }
 
   // Expenses
@@ -256,7 +324,10 @@
     await initialize()
 
     if (authStatus.value === 'authenticated') {
-      await loadExpenses()
+      await Promise.all([
+        loadFamilies(),
+        loadExpenses(),
+      ])
     }
   })
 
@@ -382,13 +453,137 @@
         <span>spend<span class="brand-light">mate</span></span>
       </a>
 
-      <div class="workspace">
-        <div class="workspace-avatar">{{ familyInitial }}</div>
-        <div class="workspace-copy">
-          <span class="eyebrow">WORKSPACE</span>
-          <strong>{{ familyName }}</strong>
+      <div class="workspace-switcher">
+        <button
+          type="button"
+          class="workspace"
+          :aria-expanded="isFamilyMenuOpen"
+          aria-haspopup="true"
+          :disabled="isLoadingFamilies || isSwitchingFamily"
+          @click="isFamilyMenuOpen = !isFamilyMenuOpen"
+        >
+          <div class="workspace-avatar">{{ familyInitial }}</div>
+
+          <div class="workspace-copy">
+            <span class="eyebrow">WORKSPACE</span>
+            <strong>{{ familyName }}</strong>
+          </div>
+
+          <span class="chevron">
+            {{ isFamilyMenuOpen ? '⌃' : '⌄' }}
+          </span>
+        </button>
+
+        <div
+          v-if="isFamilyMenuOpen"
+          class="family-menu"
+          role="menu"
+          aria-label="Switch family"
+        >
+
+          <div class="family-menu-heading">Switch workspace</div>
+
+          <div v-if="isLoadingFamilies" class="family-menu-message">
+            Loading families...
+          </div>
+
+          <template v-else>
+            <button
+              v-for="family in families"
+              :key="family.id"
+              type="button"
+              class="family-menu-item"
+              :class="{ active: family.id === familyId }"
+              role="menuitem"
+              :disabled="isSwitchingFamily || isCreatingFamily || family.id === familyId"
+              @click="handleSwitchFamily(family.id)"
+            >
+              <span class="family-menu-avatar">
+                {{ family.name.charAt(0).toUpperCase() }}
+              </span>
+
+              <span class="family-menu-copy">
+                <strong>{{ family.name }}</strong>
+                <small>{{ family.type }} · {{ family.role }}</small>
+              </span>
+
+              <span
+                v-if="family.id === familyId"
+                class="family-menu-check"
+                aria-label="Active family"
+              >
+                ✓
+              </span>
+            </button>
+
+            <div v-if="families.length === 0" class="family-menu-message">
+              No families available.
+            </div>
+          </template>
+
+          <div class="family-menu-divider"></div>
+
+          <button
+            v-if="!isCreateFamilyFormOpen"
+            type="button"
+            class="family-menu-create-button"
+            :disabled="isCreatingFamily || isSwitchingFamily"
+            @click="isCreateFamilyFormOpen = true"
+          >
+            <span>+</span>
+            Create Shared Family
+          </button>
+
+          <form
+            v-else
+            class="family-create-form"
+            @submit.prevent="handleCreateFamily"
+          >
+            <label for="new-family-name">Family name</label>
+
+            <input
+              id="new-family-name"
+              v-model="newFamilyName"
+              type="text"
+              maxlength="100"
+              placeholder="e.g. Herdianto Shared Family"
+              required
+              :disabled="isCreatingFamily"
+            />
+
+            <div class="family-create-actions">
+              <button
+                type="button"
+                class="family-create-cancel"
+                :disabled="isCreatingFamily"
+                @click="isCreateFamilyFormOpen = false; newFamilyName = ''"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                class="family-create-submit"
+                :disabled="!newFamilyName.trim() || isCreatingFamily"
+              >
+                {{ isCreatingFamily ? 'Creating...' : 'Create' }}
+              </button>
+            </div>
+          </form>
+
+
+          <div
+            v-if="familyErrorMessage"
+            class="family-menu-error"
+            role="alert"
+          >
+            {{ familyErrorMessage }}
+          </div>
+
+          <div v-if="isSwitchingFamily" class="family-menu-message">
+            Switching workspace...
+          </div>
         </div>
-        <span class="chevron">⌄</span>
       </div>
 
       <span class="nav-label">MENU</span>
