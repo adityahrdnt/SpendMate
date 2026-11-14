@@ -175,6 +175,7 @@ public sealed class FamilyMembershipRepository(
         return FamilyMembershipOperationResult.Success;
     }
 
+
     public async Task<FamilyMembershipOperationResult> RemoveMemberAsync(
         Guid familyId,
         Guid requesterUserId,
@@ -236,12 +237,87 @@ public sealed class FamilyMembershipRepository(
             }
         }
 
+        var targetUser = await dbContext.Users
+            .FromSqlInterpolated(
+                $"SELECT * FROM \"Users\" WHERE \"Id\" = {targetUserId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (targetUser is null)
+        {
+            return FamilyMembershipOperationResult.TargetMembershipNotFound;
+        }
+
+        if (targetUser.ActiveFamilyId == familyId)
+        {
+            var personalFamily = await dbContext.Families
+                .SingleOrDefaultAsync(
+                    x => x.Type == FamilyType.Personal &&
+                         x.PersonalOwnerUserId == targetUserId,
+                    cancellationToken);
+
+            if (personalFamily is null)
+            {
+                return FamilyMembershipOperationResult.PersonalFamilyNotFound;
+            }
+
+            targetUser.ActiveFamilyId = personalFamily.Id;
+        }
+
         dbContext.FamilyMemberships.Remove(targetMembership);
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return FamilyMembershipOperationResult.Success;
+    }
+
+
+    public async Task<ActiveFamilyOperationResult> SetActiveFamilyAsync(
+        Guid userId,
+        Guid familyId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(
+                cancellationToken);
+
+        var family = await dbContext.Families
+            .FromSqlInterpolated(
+                $"SELECT * FROM \"Families\" WHERE \"Id\" = {familyId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (family is null)
+        {
+            return ActiveFamilyOperationResult.FamilyNotFound;
+        }
+
+        var user = await dbContext.Users
+            .FromSqlInterpolated(
+                $"SELECT * FROM \"Users\" WHERE \"Id\" = {userId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (user is null)
+        {
+            return ActiveFamilyOperationResult.MembershipNotFound;
+        }
+
+        var isMember = await dbContext.FamilyMemberships
+            .AnyAsync(
+                x => x.FamilyId == familyId &&
+                     x.UserId == userId,
+                cancellationToken);
+
+        if (!isMember)
+        {
+            return ActiveFamilyOperationResult.MembershipNotFound;
+        }
+
+        user.ActiveFamilyId = familyId;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return ActiveFamilyOperationResult.Success;
     }
 
     public Task<bool> IsSharedFamilyMemberAsync(

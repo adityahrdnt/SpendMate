@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using SpendMate.Application.Auth.Dtos;
 using SpendMate.Application.Auth.Services;
+using SpendMate.Application.Families.Dtos;
+using SpendMate.Application.Families.Services;
 
 namespace SpendMate.Api.Endpoints;
 
@@ -111,31 +113,49 @@ public static class AuthEndpoints
         .RequireAuthorization();
 
         // Current authenticated user
-        app.MapGet("/api/me", (HttpContext httpContext) =>
+        app.MapGet("/api/me", async (
+            SpendMate.Application.Abstractions.ICurrentUser currentUser,
+            AuthService authService,
+            CancellationToken cancellationToken) =>
         {
-            var user = httpContext.User;
+            try
+            {
+                var authResponse = await authService.GetCurrentUserAsync(
+                    currentUser.UserId,
+                    cancellationToken);
 
-            var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
-            var email = user.FindFirstValue(ClaimTypes.Email);
-            var displayName = user.FindFirstValue(ClaimTypes.Name);
-            var familyId = user.FindFirstValue("FamilyId");
-            var familyName = user.FindFirstValue("FamilyName");
-
-            if (!Guid.TryParse(userId, out var parsedUserId) ||
-                !Guid.TryParse(familyId, out var parsedFamilyId) ||
-                string.IsNullOrWhiteSpace(email) ||
-                string.IsNullOrWhiteSpace(displayName) ||
-                string.IsNullOrWhiteSpace(familyName))
+                return Results.Ok(authResponse);
+            }
+            catch (UnauthorizedAccessException)
             {
                 return Results.Unauthorized();
             }
+        })
+        .RequireAuthorization()
+        .WithTags("Authentication");
 
-            return Results.Ok(new AuthResponse(
-                parsedUserId,
-                email,
-                displayName,
-                parsedFamilyId,
-                familyName));
+        // Set active family
+        app.MapPut("/api/me/active-family", async (
+            SetActiveFamilyRequest request,
+            FamilyService familyService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await familyService.SetActiveFamilyAsync(
+                    request.FamilyId,
+                    cancellationToken);
+
+                return Results.NoContent();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Results.Unauthorized();
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
         })
         .RequireAuthorization()
         .WithTags("Authentication");
@@ -169,15 +189,7 @@ public static class AuthEndpoints
 
             new Claim(
                 ClaimTypes.Email,
-                authResponse.Email),
-
-            new Claim(
-                "FamilyId",
-                authResponse.FamilyId.ToString()),
-
-            new Claim(
-                "FamilyName",
-                authResponse.FamilyName)
+                authResponse.Email)
         };
 
         var identity = new ClaimsIdentity(

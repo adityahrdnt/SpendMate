@@ -2,34 +2,45 @@
 
 SpendMate is a family-oriented expense tracking application built with ASP.NET Core, Vue.js, and PostgreSQL.
 
-The project is an MVP focused on recording, managing, and reviewing household expenses through a web interface.
+The project is an MVP focused on recording, managing, and reviewing household expenses through a web interface, with support for personal and shared family workspaces.
 
 ## Features
 
+- User registration and login with cookie-based authentication.
+- Personal and Shared Family workspaces.
+- Create Shared Families and manage family memberships.
+- Switch between available Family workspaces without logging out.
+- Persistent Active Family selection across sessions.
+- Automatic fallback to Personal Family when membership in the active Shared Family is removed.
+- Family-scoped expense access enforced by application services.
 - Create, edit, delete, and view expenses.
 - Expense categories and descriptions.
 - Date range filters: this month, last month, and custom range.
 - Dashboard summaries: total spending, transaction count, average expense, and category breakdown.
 - IDR currency formatting.
 - Chat Demo for simulating expense entry through a chat-like interface.
-- Family-scoped expense access enforced by application services.
 
 ## Technology Stack
 
 ### Backend
+
 - .NET 10
 - ASP.NET Core Minimal APIs
 - Entity Framework Core 10
 - PostgreSQL 17
 - Modular Monolith architecture
+- Cookie-based authentication
+- CSRF protection
 
 ### Frontend
+
 - Vue 3
 - TypeScript
 - Vite
 - Vitest
 
 ### Testing
+
 - xUnit
 - Moq
 - ASP.NET Core integration testing
@@ -67,7 +78,7 @@ Install the EF Core CLI if needed:
 
 ## Getting Started
 
-Run commands from the repository root.
+Run backend commands from the repository root.
 
 ### 1. Start PostgreSQL
 
@@ -94,14 +105,16 @@ Development startup does not automatically apply migrations. Apply them before s
 
 ### 4. Start the backend
 
-    dotnet run --project .\src\backend\SpendMate.Api\SpendMate.Api.csproj
+Run the HTTPS launch profile:
+
+    dotnet run --project .\src\backend\SpendMate.Api\SpendMate.Api.csproj --launch-profile https
 
 Development launch URLs:
 
 - HTTP: http://localhost:5267
 - HTTPS: https://localhost:7012
 
-The development seeder creates:
+The development seeder creates a development user and a Personal Family workspace:
 
 - User: developer@spendmate.local
 - Family: SpendMate Demo Family
@@ -117,7 +130,23 @@ Open another terminal:
     npm ci
     npm run dev
 
-Vite proxies /api and /health requests to http://localhost:5267.
+Vite proxies `/api` and `/health` requests to the backend at `https://localhost:7012`.
+
+Open the frontend at the local URL displayed by Vite.
+
+## Authentication and Family Workspaces
+
+SpendMate uses cookie-based authentication with HTTP-only and secure cookies, together with CSRF protection for state-changing API requests.
+
+Each registered user starts with a Personal Family workspace, which is also their default Active Family.
+
+Users can create Shared Family workspaces and switch between Family workspaces they belong to.
+
+The selected Active Family is persisted in the database through the user's `ActiveFamilyId` and restored across sessions.
+
+When a user's membership in their currently active Shared Family is removed, the application automatically switches them back to their Personal Family.
+
+Expense operations are scoped to the requested Family and require authenticated access and valid Family membership.
 
 ## Running Tests
 
@@ -133,7 +162,7 @@ Integration tests use Testcontainers and require Docker.
 
 ### Frontend
 
-Run from src/frontend/spendmate-web:
+Run from `src/frontend/spendmate-web`:
 
     npm ci
     npm run test
@@ -141,30 +170,32 @@ Run from src/frontend/spendmate-web:
 
 ## Database
 
-The initial EF Core migration creates:
+The database schema is managed through EF Core migrations.
+
+Core entities include:
 
 - Users
 - Families
 - FamilyMemberships
 - Expenses
 
-The database schema is managed through EF Core migrations.
+The `Users` table includes `ActiveFamilyId`, which references the user's currently selected Family workspace.
+
+Family membership records define the relationship between users and Family workspaces, including membership roles.
+
+Apply all migrations before running the application against a database.
 
 ## Current Limitations
 
-- Authentication is not implemented. Development uses a static identity.
-- The frontend uses a fixed development user and family context.
-- Expense API endpoints are currently mapped only in Development and Testing environments.
 - Chat Demo is a simulated chat-like interface, not a WhatsApp or AI integration.
-- Family membership exists in the backend data model, but production-ready multi-user collaboration is not implemented.
+- Production deployment, infrastructure, and operational configuration require further work.
+- Additional expense insights and reporting capabilities are still planned.
 
 ## Future Improvements
 
-- Authentication and authorization for real users.
-- Family member management and invitations.
-- Production API and identity configuration.
 - Actual messaging platform integration.
 - More advanced expense insights and reporting.
+- Production deployment and operational hardening.
 
 ## License
 

@@ -8,6 +8,10 @@ public interface IUserRepository
         Guid userId,
         CancellationToken cancellationToken = default);
 
+    Task<User?> GetByIdWithMembershipsAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
     Task<User?> GetByEmailVerificationTokenHashAsync(
         string tokenHash,
         CancellationToken cancellationToken = default);
@@ -16,8 +20,9 @@ public interface IUserRepository
         string email,
         CancellationToken cancellationToken = default);
 
-    Task AddAsync(
+    Task AddWithActiveFamilyAsync(
         User user,
+        Guid activeFamilyId,
         CancellationToken cancellationToken = default);
 
     Task SaveChangesAsync(

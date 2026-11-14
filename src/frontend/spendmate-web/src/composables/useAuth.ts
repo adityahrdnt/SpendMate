@@ -46,6 +46,28 @@ export function useAuth() {
     }
   }
 
+  async function refreshCurrentUser(): Promise<boolean> {
+    errorMessage.value = "";
+
+    try {
+      user.value = await getCurrentUser();
+      status.value = "authenticated";
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        user.value = null;
+        status.value = "unauthenticated";
+      }
+
+      errorMessage.value =
+        error instanceof Error
+          ? error.message
+          : "Unable to refresh your session. Please try again.";
+
+      return false;
+    }
+  }
+
   async function login(request: LoginRequest): Promise<boolean> {
     errorMessage.value = "";
 
@@ -106,6 +128,7 @@ export function useAuth() {
     errorMessage,
     isAuthenticated,
     initialize,
+    refreshCurrentUser,
     login,
     register,
     logout,

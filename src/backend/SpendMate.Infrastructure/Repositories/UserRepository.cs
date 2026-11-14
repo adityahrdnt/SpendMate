@@ -18,6 +18,18 @@ public sealed class UserRepository(
                 cancellationToken);
     }
 
+    public Task<User?> GetByIdWithMembershipsAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        return dbContext.Users
+            .Include(user => user.Memberships)
+                .ThenInclude(membership => membership.Family)
+            .SingleOrDefaultAsync(
+                user => user.Id == userId,
+                cancellationToken);
+    }
+
     public Task<User?> GetByEmailVerificationTokenHashAsync(
         string tokenHash,
         CancellationToken cancellationToken = default)
@@ -40,13 +52,26 @@ public sealed class UserRepository(
                 cancellationToken);
     }
 
-    public async Task AddAsync(
+    public async Task AddWithActiveFamilyAsync(
         User user,
+        Guid activeFamilyId,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(
+                cancellationToken);
+
         dbContext.Users.Add(user);
 
+        // Save User, Personal Family, and Membership first.
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        // Set Active Family after the Family exists in the database.
+        user.ActiveFamilyId = activeFamilyId;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public Task SaveChangesAsync(

@@ -51,7 +51,7 @@ public class AuthServiceTests
         Assert.NotEqual(Guid.Empty, result.FamilyId);
 
         _userRepository.Verify(
-            x => x.AddAsync(
+            x => x.AddWithActiveFamilyAsync(
                 It.Is<User>(user =>
                     user.Email == "aditya@example.com" &&
                     user.DisplayName == "Aditya" &&
@@ -61,6 +61,7 @@ public class AuthServiceTests
                     user.Memberships.First().Family.Type == FamilyType.Personal &&
                     user.Memberships.First().Family.PersonalOwnerUserId == user.Id &&
                     user.Memberships.First().Family.Name == "Herdianto Family"),
+                It.Is<Guid>(familyId => familyId == result.FamilyId),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -91,8 +92,9 @@ public class AuthServiceTests
                     "Herdianto Family")));
 
         _userRepository.Verify(
-            x => x.AddAsync(
+            x => x.AddWithActiveFamilyAsync(
                 It.IsAny<User>(),
+                It.IsAny<Guid>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -111,8 +113,9 @@ public class AuthServiceTests
                     "  ")));
 
         _userRepository.Verify(
-            x => x.AddAsync(
+            x => x.AddWithActiveFamilyAsync(
                 It.IsAny<User>(),
+                It.IsAny<Guid>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -131,8 +134,9 @@ public class AuthServiceTests
                     "Herdianto Family")));
 
         _userRepository.Verify(
-            x => x.AddAsync(
+            x => x.AddWithActiveFamilyAsync(
                 It.IsAny<User>(),
+                It.IsAny<Guid>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -151,8 +155,9 @@ public class AuthServiceTests
                     "Herdianto Family")));
 
         _userRepository.Verify(
-            x => x.AddAsync(
+            x => x.AddWithActiveFamilyAsync(
                 It.IsAny<User>(),
+                It.IsAny<Guid>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
     }
@@ -216,6 +221,8 @@ public class AuthServiceTests
                 "Password123"))
             .Returns(true);
 
+        user.ActiveFamilyId = Guid.NewGuid();
+
         var service = CreateService();
 
         var result = await service.LoginAsync(
@@ -228,6 +235,11 @@ public class AuthServiceTests
         Assert.Equal("Aditya", result.DisplayName);
         Assert.Equal(personalFamily.Id, result.FamilyId);
         Assert.Equal("Herdianto Family", result.FamilyName);
+        Assert.Equal(personalFamily.Id, user.ActiveFamilyId);
+
+        _userRepository.Verify(
+            x => x.SaveChangesAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -373,5 +385,131 @@ public class AuthServiceTests
                 new LoginRequest(
                     "aditya@example.com",
                     "Password123")));
+    }
+
+    [Fact]
+    public async Task GetCurrentUserAsync_WhenActiveFamilyIsValid_ReturnsActiveFamily()
+    {
+        var user = new User
+        {
+            Email = "aditya@example.com",
+            DisplayName = "Aditya"
+        };
+
+        var personalFamily = new Family
+        {
+            Name = "Personal Family",
+            Type = FamilyType.Personal,
+            PersonalOwnerUserId = user.Id
+        };
+
+        var sharedFamily = new Family
+        {
+            Name = "Shared Family",
+            Type = FamilyType.Shared
+        };
+
+        user.Memberships.Add(new FamilyMembership
+        {
+            UserId = user.Id,
+            FamilyId = personalFamily.Id,
+            User = user,
+            Family = personalFamily,
+            Role = FamilyRole.Owner
+        });
+
+        user.Memberships.Add(new FamilyMembership
+        {
+            UserId = user.Id,
+            FamilyId = sharedFamily.Id,
+            User = user,
+            Family = sharedFamily,
+            Role = FamilyRole.Member
+        });
+
+        user.ActiveFamilyId = sharedFamily.Id;
+
+        _userRepository
+            .Setup(x => x.GetByIdWithMembershipsAsync(
+                user.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        var service = CreateService();
+
+        var result = await service.GetCurrentUserAsync(user.Id);
+
+        Assert.Equal(user.Id, result.UserId);
+        Assert.Equal(sharedFamily.Id, result.FamilyId);
+        Assert.Equal("Shared Family", result.FamilyName);
+
+        _userRepository.Verify(
+            x => x.SaveChangesAsync(It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetCurrentUserAsync_WhenActiveFamilyIsInvalid_FallsBackToPersonalFamily()
+    {
+        var user = new User
+        {
+            Email = "aditya@example.com",
+            DisplayName = "Aditya",
+            ActiveFamilyId = Guid.NewGuid()
+        };
+
+        var personalFamily = new Family
+        {
+            Name = "Personal Family",
+            Type = FamilyType.Personal,
+            PersonalOwnerUserId = user.Id
+        };
+
+        user.Memberships.Add(new FamilyMembership
+        {
+            UserId = user.Id,
+            FamilyId = personalFamily.Id,
+            User = user,
+            Family = personalFamily,
+            Role = FamilyRole.Owner
+        });
+
+        _userRepository
+            .Setup(x => x.GetByIdWithMembershipsAsync(
+                user.Id,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        var service = CreateService();
+
+        var result = await service.GetCurrentUserAsync(user.Id);
+
+        Assert.Equal(personalFamily.Id, result.FamilyId);
+        Assert.Equal(personalFamily.Id, user.ActiveFamilyId);
+
+        _userRepository.Verify(
+            x => x.SaveChangesAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetCurrentUserAsync_WhenUserDoesNotExist_ThrowsUnauthorizedAccessException()
+    {
+        var userId = Guid.NewGuid();
+
+        _userRepository
+            .Setup(x => x.GetByIdWithMembershipsAsync(
+                userId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((User?)null);
+
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => service.GetCurrentUserAsync(userId));
+
+        _userRepository.Verify(
+            x => x.SaveChangesAsync(It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }

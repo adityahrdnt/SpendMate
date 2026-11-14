@@ -9,6 +9,11 @@ import {
 } from "./services/expenseApi";
 
 import { getCurrentUser } from "./services/authApi";
+import {
+  createFamily,
+  getFamilies,
+  setActiveFamily,
+} from "./services/familyApi";
 
 vi.mock("./services/expenseApi", () => ({
   getExpenses: vi.fn(),
@@ -29,11 +34,36 @@ const testUser = {
   familyName: "Herdianto Family",
 };
 
+const TEST_SHARED_FAMILY_ID = "33333333-3333-3333-3333-333333333333";
+
+const testFamilies = [
+  {
+    id: TEST_FAMILY_ID,
+    name: "Herdianto Family",
+    type: "Personal" as const,
+    role: "Owner" as const,
+    joinedAtUtc: "2026-01-01T00:00:00Z",
+  },
+  {
+    id: TEST_SHARED_FAMILY_ID,
+    name: "Shared Family",
+    type: "Shared" as const,
+    role: "Member" as const,
+    joinedAtUtc: "2026-10-01T00:00:00Z",
+  },
+];
+
 vi.mock("./services/authApi", () => ({
   getCurrentUser: vi.fn(),
   login: vi.fn(),
   register: vi.fn(),
   logout: vi.fn(),
+}));
+
+vi.mock("./services/familyApi", () => ({
+  getFamilies: vi.fn(),
+  setActiveFamily: vi.fn(),
+  createFamily: vi.fn(),
 }));
 
 const sampleExpense = {
@@ -56,8 +86,19 @@ describe("SpendMate dashboard", () => {
     vi.resetAllMocks();
 
     vi.mocked(getCurrentUser).mockResolvedValue(testUser);
+    vi.mocked(getFamilies).mockResolvedValue(testFamilies);
+    vi.mocked(setActiveFamily).mockResolvedValue(undefined);
+
     vi.mocked(getExpenses).mockResolvedValue([]);
     vi.mocked(deleteExpense).mockResolvedValue(undefined);
+
+    vi.mocked(createFamily).mockResolvedValue({
+      id: "44444444-4444-4444-4444-444444444444",
+      name: "New Shared Family",
+      type: "Shared",
+      role: "Owner",
+      joinedAtUtc: "2026-11-14T00:00:00Z",
+    });
   });
 
   it("displays expenses returned by the API", async () => {
@@ -70,6 +111,188 @@ describe("SpendMate dashboard", () => {
     expect(wrapper.text()).toContain("Food & Dining");
     expect(wrapper.text()).toContain("You");
     expect(wrapper.text().replace(/\s/g, "")).toContain("Rp35.000");
+
+    wrapper.unmount();
+  });
+
+  it("displays available families and marks the active family", async () => {
+    const wrapper = mount(App);
+    await flushPromises();
+
+    const workspaceButton = wrapper.get(".workspace");
+
+    expect(workspaceButton.text()).toContain("Herdianto Family");
+
+    await workspaceButton.trigger("click");
+
+    expect(wrapper.find(".family-menu").exists()).toBe(true);
+    expect(wrapper.findAll(".family-menu-item")).toHaveLength(2);
+    expect(wrapper.text()).toContain("Shared Family");
+
+    const activeFamilyButton = wrapper.find(".family-menu-item.active");
+
+    expect(activeFamilyButton.exists()).toBe(true);
+    expect(activeFamilyButton.text()).toContain("Herdianto Family");
+    expect(activeFamilyButton.attributes("disabled")).toBeDefined();
+
+    wrapper.unmount();
+  });
+
+  it("switches active family and reloads expenses", async () => {
+    vi.mocked(getCurrentUser)
+      .mockResolvedValueOnce(testUser)
+      .mockResolvedValueOnce({
+        ...testUser,
+        familyId: TEST_SHARED_FAMILY_ID,
+        familyName: "Shared Family",
+      });
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    await wrapper.get(".workspace").trigger("click");
+
+    const sharedFamilyButton = wrapper
+      .findAll(".family-menu-item")
+      .find((button) => button.text().includes("Shared Family"));
+
+    expect(sharedFamilyButton).toBeDefined();
+
+    await sharedFamilyButton!.trigger("click");
+    await flushPromises();
+
+    expect(setActiveFamily).toHaveBeenCalledWith({
+      familyId: TEST_SHARED_FAMILY_ID,
+    });
+
+    expect(getCurrentUser).toHaveBeenCalledTimes(2);
+
+    expect(getExpenses).toHaveBeenLastCalledWith(TEST_SHARED_FAMILY_ID);
+
+    expect(wrapper.find(".workspace").text()).toContain("Shared Family");
+    expect(wrapper.find(".family-menu").exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it("creates a shared family and refreshes the family list", async () => {
+    const newFamily = {
+      id: "44444444-4444-4444-4444-444444444444",
+      name: "New Shared Family",
+      type: "Shared" as const,
+      role: "Owner" as const,
+      joinedAtUtc: "2026-11-14T00:00:00Z",
+    };
+
+    vi.mocked(getFamilies)
+      .mockResolvedValueOnce(testFamilies)
+      .mockResolvedValueOnce([...testFamilies, newFamily]);
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    await wrapper.get(".workspace").trigger("click");
+
+    await wrapper.get(".family-menu-create-button").trigger("click");
+
+    const nameInput = wrapper.get("#new-family-name");
+
+    await nameInput.setValue("New Shared Family");
+
+    await wrapper.get(".family-create-form").trigger("submit");
+
+    await flushPromises();
+
+    expect(createFamily).toHaveBeenCalledWith({
+      name: "New Shared Family",
+    });
+
+    expect(getFamilies).toHaveBeenCalledTimes(2);
+
+    expect(wrapper.text()).toContain("New Shared Family");
+
+    expect(wrapper.find(".family-create-form").exists()).toBe(false);
+
+    // The Personal Family must remain active.
+    expect(wrapper.find(".workspace").text()).toContain("Herdianto Family");
+
+    expect(wrapper.find(".family-menu-item.active").text()).toContain(
+      "Herdianto Family",
+    );
+
+    expect(setActiveFamily).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it("keeps the create family form open when creation fails", async () => {
+    vi.mocked(createFamily).mockRejectedValueOnce(
+      new Error("Family name already exists."),
+    );
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    await wrapper.get(".workspace").trigger("click");
+
+    await wrapper.get(".family-menu-create-button").trigger("click");
+
+    const nameInput = wrapper.get("#new-family-name");
+
+    await nameInput.setValue("Existing Family");
+
+    await wrapper.get(".family-create-form").trigger("submit");
+
+    await flushPromises();
+
+    expect(createFamily).toHaveBeenCalledWith({
+      name: "Existing Family",
+    });
+
+    expect(wrapper.find(".family-create-form").exists()).toBe(true);
+    expect(
+      (wrapper.get("#new-family-name").element as HTMLInputElement).value,
+    ).toBe("Existing Family");
+
+    expect(wrapper.find(".family-menu-error").text()).toContain(
+      "Family name already exists.",
+    );
+
+    expect(getFamilies).toHaveBeenCalledTimes(1);
+    expect(wrapper.find(".workspace").text()).toContain("Herdianto Family");
+
+    wrapper.unmount();
+  });
+
+  it("keeps the current family when switching fails", async () => {
+    vi.mocked(setActiveFamily).mockRejectedValueOnce(
+      new Error("You are not a member of this family."),
+    );
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    const initialExpenseCalls = vi.mocked(getExpenses).mock.calls.length;
+
+    await wrapper.get(".workspace").trigger("click");
+
+    const sharedFamilyButton = wrapper
+      .findAll(".family-menu-item")
+      .find((button) => button.text().includes("Shared Family"));
+
+    expect(sharedFamilyButton).toBeDefined();
+
+    await sharedFamilyButton!.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".workspace").text()).toContain("Herdianto Family");
+    expect(wrapper.find(".family-menu").exists()).toBe(true);
+    expect(wrapper.find(".family-menu-error").text()).toContain(
+      "You are not a member of this family.",
+    );
+
+    expect(getCurrentUser).toHaveBeenCalledTimes(1);
+    expect(getExpenses).toHaveBeenCalledTimes(initialExpenseCalls);
 
     wrapper.unmount();
   });

@@ -22,6 +22,13 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .HasMaxLength(500)
             .IsRequired(false);
 
+        builder.HasOne<Family>()
+            .WithMany()
+            .HasForeignKey(x => x.ActiveFamilyId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(x => x.ActiveFamilyId);
+
         builder.Property(x => x.CreatedAtUtc)
             .IsRequired();
 

@@ -79,5 +79,12 @@ public static class DevelopmentDataSeeder
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        if (user.ActiveFamilyId != DevelopmentIds.FamilyId)
+        {
+            user.ActiveFamilyId = DevelopmentIds.FamilyId;
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
     }
 }

@@ -8,5 +8,6 @@ public enum FamilyMembershipOperationResult
     RequesterNotOwner,
     TargetMembershipNotFound,
     LastOwner,
+    PersonalFamilyNotFound,
     CannotChangeOwnRole
 }

@@ -466,7 +466,56 @@ public sealed class FamilyMembershipEndpointsTests(
     }
 
     [Fact]
-    public async Task RemoveMember_WhenTargetIsLastOwner_ReturnsConflict()
+    public async Task RemoveMember_WhenTargetActiveFamilyIsRemoved_FallsBackToPersonalFamily()
+    {
+        // Arrange
+        var familyId = await CreateSharedFamilyAsync(
+            (SpendMateApiFactory.TestUserId, FamilyRole.Owner),
+            (SpendMateApiFactory.SecondTestUserId, FamilyRole.Member));
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider
+                .GetRequiredService<SpendMateDbContext>();
+
+            var targetUser = await dbContext.Users
+                .SingleAsync(x => x.Id == SpendMateApiFactory.SecondTestUserId);
+
+            targetUser.ActiveFamilyId = familyId;
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        // Act
+        var response = await _client.DeleteAsync(
+            $"/api/families/{familyId}/members/{SpendMateApiFactory.SecondTestUserId}");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        await using var verificationScope =
+            factory.Services.CreateAsyncScope();
+
+        var verificationDb = verificationScope.ServiceProvider
+            .GetRequiredService<SpendMateDbContext>();
+
+        var targetUserAfterRemoval = await verificationDb.Users
+            .SingleAsync(x => x.Id == SpendMateApiFactory.SecondTestUserId);
+
+        Assert.Equal(
+            SpendMateApiFactory.CrossFamilyId,
+            targetUserAfterRemoval.ActiveFamilyId);
+
+        var membershipExists = await verificationDb.FamilyMemberships
+            .AnyAsync(x =>
+                x.FamilyId == familyId &&
+                x.UserId == SpendMateApiFactory.SecondTestUserId);
+
+        Assert.False(membershipExists);
+    }
+
+    [Fact]
+    public async Task RemoveMember_WhenTargetActiveFamilyIsNotRemoved_KeepsActiveFamily()
     {
         // Arrange
         var familyId = await CreateSharedFamilyAsync(
@@ -475,30 +524,114 @@ public sealed class FamilyMembershipEndpointsTests(
 
         // Act
         var response = await _client.DeleteAsync(
-            $"/api/families/{familyId}/members/{SpendMateApiFactory.TestUserId}");
+            $"/api/families/{familyId}/members/{SpendMateApiFactory.SecondTestUserId}");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        await using var verificationScope =
+            factory.Services.CreateAsyncScope();
+
+        var verificationDb = verificationScope.ServiceProvider
+            .GetRequiredService<SpendMateDbContext>();
+
+        var targetUser = await verificationDb.Users
+            .SingleAsync(x => x.Id == SpendMateApiFactory.SecondTestUserId);
+
+        Assert.Equal(
+            SpendMateApiFactory.CrossFamilyId,
+            targetUser.ActiveFamilyId);
+
+        var membershipExists = await verificationDb.FamilyMemberships
+            .AnyAsync(x =>
+                x.FamilyId == familyId &&
+                x.UserId == SpendMateApiFactory.SecondTestUserId);
+
+        Assert.False(membershipExists);
+    }
+
+    [Fact]
+    public async Task RemoveMember_WhenTargetPersonalFamilyIsMissing_ReturnsConflictAndKeepsMembership()
+    {
+        // Arrange
+        var familyId = await CreateSharedFamilyAsync(
+            (SpendMateApiFactory.TestUserId, FamilyRole.Owner),
+            (SpendMateApiFactory.SecondTestUserId, FamilyRole.Member));
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider
+                .GetRequiredService<SpendMateDbContext>();
+
+            var targetUser = await dbContext.Users
+                .SingleAsync(x => x.Id == SpendMateApiFactory.SecondTestUserId);
+
+            // Move the active family before deleting the Personal Family.
+            targetUser.ActiveFamilyId = familyId;
+            await dbContext.SaveChangesAsync();
+
+            await dbContext.Families
+                .Where(x => x.Id == SpendMateApiFactory.CrossFamilyId)
+                .ExecuteDeleteAsync();
+        }
+
+        // Act
+        var response = await _client.DeleteAsync(
+            $"/api/families/{familyId}/members/{SpendMateApiFactory.SecondTestUserId}");
 
         // Assert
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
 
-        await using var scope = factory.Services.CreateAsyncScope();
+        await using var verificationScope =
+            factory.Services.CreateAsyncScope();
 
-        var dbContext = scope.ServiceProvider
+        var verificationDb = verificationScope.ServiceProvider
             .GetRequiredService<SpendMateDbContext>();
 
-        var ownerMembership = await dbContext.FamilyMemberships
-            .SingleOrDefaultAsync(m =>
-                m.FamilyId == familyId &&
-                m.UserId == SpendMateApiFactory.TestUserId);
+        var targetUserAfterRemoval = await verificationDb.Users
+            .SingleAsync(x => x.Id == SpendMateApiFactory.SecondTestUserId);
 
-        Assert.NotNull(ownerMembership);
-        Assert.Equal(FamilyRole.Owner, ownerMembership.Role);
+        Assert.Equal(familyId, targetUserAfterRemoval.ActiveFamilyId);
 
-        var ownerCount = await dbContext.FamilyMemberships
-            .CountAsync(m =>
-                m.FamilyId == familyId &&
-                m.Role == FamilyRole.Owner);
+        var membershipExists = await verificationDb.FamilyMemberships
+            .AnyAsync(x =>
+                x.FamilyId == familyId &&
+                x.UserId == SpendMateApiFactory.SecondTestUserId);
 
-        Assert.Equal(1, ownerCount);
+        Assert.True(membershipExists);
+
+        var personalFamilyExists = await verificationDb.Families
+            .AnyAsync(x => x.Id == SpendMateApiFactory.CrossFamilyId);
+
+        Assert.False(personalFamilyExists);
+
+        // Restore the shared test fixture for other tests.
+        await using var restoreScope = factory.Services.CreateAsyncScope();
+
+        var restoreDb = restoreScope.ServiceProvider
+            .GetRequiredService<SpendMateDbContext>();
+
+        restoreDb.Families.Add(new Family
+        {
+            Id = SpendMateApiFactory.CrossFamilyId,
+            Name = "Cross-family Test Family",
+            Type = FamilyType.Personal,
+            PersonalOwnerUserId = SpendMateApiFactory.SecondTestUserId
+        });
+
+        restoreDb.FamilyMemberships.Add(new FamilyMembership
+        {
+            FamilyId = SpendMateApiFactory.CrossFamilyId,
+            UserId = SpendMateApiFactory.SecondTestUserId,
+            Role = FamilyRole.Owner
+        });
+
+        var restoredUser = await restoreDb.Users
+            .SingleAsync(x => x.Id == SpendMateApiFactory.SecondTestUserId);
+
+        restoredUser.ActiveFamilyId = SpendMateApiFactory.CrossFamilyId;
+
+        await restoreDb.SaveChangesAsync();
     }
 
     [Fact]

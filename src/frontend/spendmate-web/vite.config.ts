@@ -8,6 +8,7 @@ export default defineConfig({
     clearMocks: true,
   },
   server: {
+    host: "0.0.0.0",
     proxy: {
       "/api": {
         target: "https://localhost:7012",
