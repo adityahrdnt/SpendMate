@@ -29,6 +29,12 @@ public class AuthServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((User?)null);
 
+        _userRepository
+            .Setup(x => x.GetByPhoneNumberAsync(
+                "+6281234567890",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((User?)null);
+
         _passwordHasher
             .Setup(x => x.HashPassword(
                 It.IsAny<User>(),
@@ -40,6 +46,7 @@ public class AuthServiceTests
         var result = await service.RegisterAsync(
             new RegisterRequest(
                 " Aditya@Example.com ",
+                " +6281234567890 ",
                 "Aditya",
                 "Password123",
                 "Herdianto Family"));
@@ -54,6 +61,8 @@ public class AuthServiceTests
             x => x.AddWithActiveFamilyAsync(
                 It.Is<User>(user =>
                     user.Email == "aditya@example.com" &&
+                    user.PhoneNumber == "+6281234567890" &&
+                    user.PhoneVerifiedAtUtc == null &&
                     user.DisplayName == "Aditya" &&
                     user.PasswordHash == "hashed-password" &&
                     user.Memberships.Count == 1 &&
@@ -87,9 +96,49 @@ public class AuthServiceTests
             service.RegisterAsync(
                 new RegisterRequest(
                     "aditya@example.com",
+                    "+6281234567891",
                     "Aditya",
                     "Password123",
                     "Herdianto Family")));
+
+        _userRepository.Verify(
+            x => x.AddWithActiveFamilyAsync(
+                It.IsAny<User>(),
+                It.IsAny<Guid>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WhenPhoneNumberAlreadyExists_ThrowsInvalidOperationException()
+    {
+        _userRepository
+            .Setup(x => x.GetByEmailAsync(
+                "newuser@example.com",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((User?)null);
+
+        _userRepository
+            .Setup(x => x.GetByPhoneNumberAsync(
+                "+6281234567890",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new User
+            {
+                Email = "existing@example.com",
+                PhoneNumber = "+6281234567890",
+                DisplayName = "Existing User"
+            });
+
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RegisterAsync(
+                new RegisterRequest(
+                    "newuser@example.com",
+                    "+6281234567890",
+                    "New User",
+                    "Password123",
+                    "New Family")));
 
         _userRepository.Verify(
             x => x.AddWithActiveFamilyAsync(
@@ -108,6 +157,7 @@ public class AuthServiceTests
             service.RegisterAsync(
                 new RegisterRequest(
                     "aditya@example.com",
+                    "+6281234567892",
                     "Aditya",
                     "Password123",
                     "  ")));
@@ -129,6 +179,7 @@ public class AuthServiceTests
             service.RegisterAsync(
                 new RegisterRequest(
                     "aditya@example.com",
+                    "+6281234567893",
                     "Aditya",
                     "1234567",
                     "Herdianto Family")));
@@ -150,9 +201,34 @@ public class AuthServiceTests
             service.RegisterAsync(
                 new RegisterRequest(
                     "invalid-email",
+                    "+6281234567894",
                     "Aditya",
                     "Password123",
                     "Herdianto Family")));
+
+        _userRepository.Verify(
+            x => x.AddWithActiveFamilyAsync(
+                It.IsAny<User>(),
+                It.IsAny<Guid>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WhenPhoneNumberIsInvalid_ThrowsArgumentException()
+    {
+        var service = CreateService();
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.RegisterAsync(
+                new RegisterRequest(
+                    "aditya@example.com",
+                    "081234567890",
+                    "Aditya",
+                    "Password123",
+                    "Herdianto Family")));
+
+        Assert.Equal("PhoneNumber", exception.ParamName);
 
         _userRepository.Verify(
             x => x.AddWithActiveFamilyAsync(

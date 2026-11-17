@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SpendMate.Application.Abstractions;
+using SpendMate.Application.Auth.Options;
 using SpendMate.Domain.Entities;
 using SpendMate.Domain.Enums;
 using SpendMate.Infrastructure.Data;
@@ -49,6 +50,9 @@ public sealed class SpendMateApiFactory
     public FakeEmailSender EmailSender =>
         Services.GetRequiredService<FakeEmailSender>();
 
+    public FakePhoneOtpProvider PhoneOtpProvider =>
+        Services.GetRequiredService<FakePhoneOtpProvider>();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -86,6 +90,28 @@ public sealed class SpendMateApiFactory
 
             services.AddSingleton<IEmailSender>(serviceProvider =>
                 serviceProvider.GetRequiredService<FakeEmailSender>());
+
+            services.Configure<PhoneOtpOptions>(options =>
+            {
+                options.HashingSecret =
+                    Convert.ToBase64String(
+                        System.Security.Cryptography.SHA256.HashData(
+                            System.Text.Encoding.UTF8.GetBytes(
+                                "SpendMate-Integration-Tests-Only-Secret-2026")));
+
+                options.EncryptionKey =
+                    Convert.ToBase64String(
+                        System.Security.Cryptography.SHA256.HashData(
+                            System.Text.Encoding.UTF8.GetBytes(
+                                "SpendMate-Integration-Tests-Only-Encryption-Key")));
+            });
+
+            services.RemoveAll<IPhoneOtpProvider>();
+
+            services.AddSingleton<FakePhoneOtpProvider>();
+
+            services.AddSingleton<IPhoneOtpProvider>(serviceProvider =>
+                serviceProvider.GetRequiredService<FakePhoneOtpProvider>());
         });
     }
 

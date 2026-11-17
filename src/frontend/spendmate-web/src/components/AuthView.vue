@@ -15,6 +15,7 @@
     const mode = ref<"login" | "register">("login");
 
     const email = ref("");
+    const phoneNumber = ref("");
     const displayName = ref("");
     const password = ref("");
     const familyName = ref("");
@@ -44,6 +45,7 @@
 
         emit("register", {
             email: email.value.trim(),
+            phoneNumber: phoneNumber.value.trim(),
             displayName: displayName.value.trim(),
             password: password.value,
             familyName: familyName.value.trim(),
@@ -100,6 +102,20 @@
             autocomplete="email"
             placeholder="you@example.com"
             maxlength="254"
+            required
+          />
+        </label>
+
+        <label>
+          Phone number
+          <input
+            v-model="phoneNumber"
+            type="tel"
+            autocomplete="tel"
+            placeholder="+6281234567890"
+            maxlength="16"
+            pattern="\+[1-9][0-9]{1,14}"
+            title="Enter a phone number in international format, e.g. +6281234567890"
             required
           />
         </label>

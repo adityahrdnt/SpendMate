@@ -13,6 +13,7 @@ public static class DependencyInjection
         services.AddScoped<ExpenseService>();
         services.AddScoped<AuthService>();
         services.AddScoped<EmailVerificationService>();
+        services.AddScoped<PhoneVerificationService>();
         services.AddScoped<FamilyService>();
         services.AddScoped<FamilyInvitationService>();
 

@@ -7,8 +7,10 @@ using SpendMate.Api.Endpoints;
 using SpendMate.Api.Security;
 using SpendMate.Application;
 using SpendMate.Application.Abstractions;
+using SpendMate.Application.Auth.Options;
 using SpendMate.Infrastructure;
 using SpendMate.Infrastructure.Data;
+using SpendMate.Infrastructure.PhoneVerification;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,8 +29,50 @@ builder.Services.AddDbContext<SpendMateDbContext>(options =>
 // Application
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services
+    .AddOptions<PhoneOtpOptions>()
+    .Bind(builder.Configuration.GetSection(
+        PhoneOtpOptions.SectionName))
+    .Validate(options =>
+    {
+        try
+        {
+            return Convert.FromBase64String(
+                options.HashingSecret).Length == 32;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }, "PhoneOtp:HashingSecret must be a valid Base64-encoded 32-byte key.")
+    .Validate(options =>
+    {
+        try
+        {
+            return Convert.FromBase64String(
+                options.EncryptionKey).Length == 32;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }, "PhoneOtp:EncryptionKey must be a valid Base64-encoded 32-byte key.")
+    .Validate(options =>
+        options.CodeLength == 6 &&
+        options.ExpiryMinutes > 0 &&
+        options.MaxAttempts > 0 &&
+        options.ResendCooldownSeconds > 0,
+        "Phone OTP settings must have valid positive values and a code length of 6.")
+    .ValidateOnStart();
 
 // Authentication
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddScoped<
+        IPhoneOtpProvider,
+        DevelopmentPhoneOtpProvider>();
+}
+
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>

@@ -17,6 +17,10 @@ public sealed class AuthService(
         ArgumentNullException.ThrowIfNull(request);
 
         var email = NormalizeEmail(request.Email);
+        var phoneNumber = NormalizeRequiredText(
+            request.PhoneNumber,
+            16,
+            nameof(request.PhoneNumber));
         var displayName = NormalizeRequiredText(
             request.DisplayName,
             100,
@@ -28,6 +32,7 @@ public sealed class AuthService(
             nameof(request.FamilyName));
 
         ValidateEmail(email);
+        ValidatePhoneNumber(phoneNumber);
         ValidatePassword(request.Password);
 
         var existingUser = await userRepository.GetByEmailAsync(
@@ -40,9 +45,21 @@ public sealed class AuthService(
                 "An account with this email already exists.");
         }
 
+        var existingPhoneNumber = await userRepository.GetByPhoneNumberAsync(
+            phoneNumber,
+            cancellationToken);
+
+        if (existingPhoneNumber is not null)
+        {
+            throw new InvalidOperationException(
+                "An account with this phone number already exists.");
+        }
+
         var user = new User
         {
             Email = email,
+            PhoneNumber = phoneNumber,
+            PhoneVerifiedAtUtc = null,
             DisplayName = displayName
         };
 
@@ -198,6 +215,20 @@ public sealed class AuthService(
             throw new ArgumentException(
                 "A valid email address is required.",
                 "Email");
+        }
+    }
+
+    private static void ValidatePhoneNumber(string phoneNumber)
+    {
+        if (phoneNumber.Length is < 3 or > 16 ||
+            phoneNumber[0] != '+' ||
+            phoneNumber[1] is < '1' or > '9' ||
+            phoneNumber.Skip(2).Any(
+                character => character is < '0' or > '9'))
+        {
+            throw new ArgumentException(
+                "A valid phone number in E.164 format is required.",
+                "PhoneNumber");
         }
     }
 

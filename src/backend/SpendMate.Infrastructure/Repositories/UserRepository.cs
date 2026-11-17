@@ -52,6 +52,16 @@ public sealed class UserRepository(
                 cancellationToken);
     }
 
+    public Task<User?> GetByPhoneNumberAsync(
+        string phoneNumber,
+        CancellationToken cancellationToken = default)
+    {
+        return dbContext.Users
+            .SingleOrDefaultAsync(
+                user => user.PhoneNumber == phoneNumber,
+                cancellationToken);
+    }
+
     public async Task AddWithActiveFamilyAsync(
         User user,
         Guid activeFamilyId,

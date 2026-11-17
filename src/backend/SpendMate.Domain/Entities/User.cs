@@ -8,6 +8,10 @@ public class User
 
     public required string Email { get; set; }
 
+    public string? PhoneNumber { get; set; }
+
+    public DateTimeOffset? PhoneVerifiedAtUtc { get; set; }
+
     public required string DisplayName { get; set; }
 
     public string? PasswordHash { get; set; }

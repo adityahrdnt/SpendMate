@@ -11,9 +11,10 @@
   import { useExpenses } from './composables/useExpenses'
   import { useFamilies } from './composables/useFamilies'
   import { formatCurrency, formatDate } from './utils/formatters'
-  import { computed, onMounted, ref } from 'vue'
+  import FamilyManagementView from './views/FamilyManagementView.vue'
+  import { computed, onMounted, ref, watch } from 'vue'
 
-  type Page = 'Dashboard' | 'Expenses' | 'Chat Demo'
+  type Page = 'Dashboard' | 'Expenses' | 'Chat Demo' | 'Family Management'
 
   const activePage = ref<Page>('Dashboard')
   const selectedFilter = ref('All')
@@ -46,6 +47,21 @@
   const isFamilyMenuOpen = ref(false)
 
   const familyId = computed(() => user.value?.familyId ?? '')
+
+  const familyRole = computed(
+    () => families.value.find((family) => family.id === familyId.value)?.role ?? 'Member',
+  )
+
+  const isSharedFamily = computed(
+    () => families.value.find((family) => family.id === familyId.value)?.type === 'Shared',
+  )
+
+  watch(isSharedFamily, (isShared) => {
+    if (!isShared && activePage.value === 'Family Management') {
+      activePage.value = 'Dashboard'
+    }
+  })
+
   const currentUserId = computed(() => user.value?.userId ?? '')
   const displayName = computed(() => user.value?.displayName ?? '')
   const familyName = computed(() => user.value?.familyName ?? '')
@@ -130,6 +146,27 @@
 
     await loadExpenses()
     isFamilyMenuOpen.value = false
+  }
+
+  async function handleFamilyLeft() {
+    const refreshed = await refreshCurrentUser()
+
+    if (!refreshed) {
+      familyErrorMessage.value =
+        authErrorMessage.value
+        || 'You left the family, but the current user could not be refreshed. Please try again.'
+      return
+    }
+
+    const familiesLoaded = await loadFamilies()
+
+    if (!familiesLoaded) {
+      activePage.value = 'Dashboard'
+      return
+    }
+
+    await loadExpenses()
+    activePage.value = 'Dashboard'
   }
 
   async function handleCreateFamily() {
@@ -588,21 +625,26 @@
 
       <span class="nav-label">MENU</span>
       <nav class="main-nav" aria-label="Main navigation">
-        <button
+        <template
           v-for="item in [
             { name: 'Dashboard' as Page, icon: '▦' },
             { name: 'Expenses' as Page, icon: '↗' },
             { name: 'Chat Demo' as Page, icon: '☏' },
+            { name: 'Family Management' as Page, icon: '♙' },
           ]"
           :key="item.name"
-          class="nav-item"
-          :class="{ active: activePage === item.name }"
-          @click="activePage = item.name"
         >
-          <span class="nav-icon">{{ item.icon }}</span>
-          {{ item.name }}
-          <span v-if="item.name === 'Chat Demo'" class="demo-tag">DEMO</span>
-        </button>
+          <button
+            v-if="item.name !== 'Family Management' || isSharedFamily"
+            class="nav-item"
+            :class="{ active: activePage === item.name }"
+            @click="activePage = item.name"
+          >
+            <span class="nav-icon">{{ item.icon }}</span>
+            {{ item.name }}
+            <span v-if="item.name === 'Chat Demo'" class="demo-tag">DEMO</span>
+          </button>
+        </template>
       </nav>
 
       <div class="sidebar-bottom">
@@ -649,7 +691,15 @@
       </header>
 
       <div class="page-content">
-        <template v-if="activePage !== 'Chat Demo'">
+        <FamilyManagementView
+          v-if="activePage === 'Family Management' && isSharedFamily"
+          :family-id="familyId"
+          :current-user-id="user?.userId ?? ''"
+          :family-role="familyRole"
+          @family-left="handleFamilyLeft"
+        />
+
+        <template v-else-if="activePage !== 'Chat Demo'">
           <div v-if="isLoading" class="empty-state" role="status">
             Loading family expenses...
           </div>

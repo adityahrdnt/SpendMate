@@ -1892,3 +1892,144 @@ tbody tr:hover {
     min-width: 0;
   }
 }
+
+
+/* Family Management */
+.family-management-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.family-members-panel {
+  padding: 24px;
+}
+
+.family-members-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.family-member-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 17px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.family-member-row:first-child {
+  padding-top: 0;
+}
+
+.family-member-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.family-member-info {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+
+.family-member-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.family-member-copy strong {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: #29382f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.family-member-copy > span {
+  overflow-wrap: anywhere;
+  color: #68756c;
+  font-size: 12px;
+}
+
+.family-member-copy small {
+  color: #929b94;
+  font-size: 10px;
+}
+
+.you-label {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #e4eee6;
+  color: var(--green-dark);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.family-member-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.family-member-actions select {
+  min-height: 35px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  color: #58655c;
+  font-size: 11px;
+}
+
+.family-member-actions .secondary-button {
+  min-height: 35px;
+  padding: 0 12px;
+  border: 1px solid #e1e7e2;
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.family-management-note {
+  margin-top: 20px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f6f8f6;
+  color: #68756c;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  .family-members-panel {
+    padding: 17px 15px;
+  }
+
+  .family-member-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 13px;
+    padding: 15px 0;
+  }
+
+  .family-member-info {
+    width: 100%;
+  }
+
+  .family-member-actions {
+    justify-content: flex-end;
+    width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  .family-member-actions {
+    flex-wrap: wrap;
+  }
+}

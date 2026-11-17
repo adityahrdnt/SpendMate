@@ -14,6 +14,17 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .HasMaxLength(254)
             .IsRequired();
 
+        builder.Property(x => x.PhoneNumber)
+            .HasMaxLength(16)
+            .IsRequired(false);
+
+        builder.Property(x => x.PhoneVerifiedAtUtc)
+            .IsRequired(false);
+
+        builder.HasIndex(x => x.PhoneNumber)
+            .IsUnique()
+            .HasFilter("\"PhoneNumber\" IS NOT NULL");
+
         builder.Property(x => x.DisplayName)
             .HasMaxLength(100)
             .IsRequired();

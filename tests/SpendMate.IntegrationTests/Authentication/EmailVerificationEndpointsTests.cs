@@ -27,6 +27,7 @@ public sealed class EmailVerificationEndpointsTests(
             "/api/auth/register",
             new RegisterRequest(
                 email,
+                CreateUniquePhoneNumber(),
                 "Verification Test User",
                 "SecurePassword123!",
                 "Verification Test Family"));
@@ -276,9 +277,15 @@ public sealed class EmailVerificationEndpointsTests(
             "/api/auth/register",
             new RegisterRequest(
                 email,
+                CreateUniquePhoneNumber(),
                 "Email Verification User",
                 "SecurePassword123!",
                 "Email Verification Family"));
+    }
+
+    private static string CreateUniquePhoneNumber()
+    {
+        return $"+628{Random.Shared.Next(100_000_000, 999_999_999)}";
     }
 
     private async Task<HttpClient> CreateClientWithCsrfAsync()

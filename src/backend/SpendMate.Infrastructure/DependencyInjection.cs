@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SpendMate.Application.Abstractions;
 using SpendMate.Infrastructure.Email;
+using SpendMate.Infrastructure.PhoneVerification;
 using SpendMate.Infrastructure.Repositories;
 using SpendMate.Infrastructure.Security;
 
@@ -23,6 +24,18 @@ public static class DependencyInjection
             FamilyMembershipRepository>();
 
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<
+            IPhoneVerificationChallengeRepository,
+            PhoneVerificationChallengeRepository>();
+        services.AddScoped<
+            IPhoneVerificationTransaction,
+            PhoneVerificationTransaction>();
+
+        services.AddScoped<IPhoneOtpCryptography, PhoneOtpCryptography>();
+        services.AddScoped<
+            IPhoneOtpProvider,
+            UnavailablePhoneOtpProvider>();
+
         services.AddScoped<IPasswordHasher, AspNetPasswordHasher>();
         services.AddScoped<IEmailSender, DevelopmentEmailSender>();
 

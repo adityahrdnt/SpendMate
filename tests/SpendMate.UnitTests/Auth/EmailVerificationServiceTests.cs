@@ -1,4 +1,3 @@
-
 using Moq;
 using SpendMate.Application.Abstractions;
 using SpendMate.Application.Auth.Services;

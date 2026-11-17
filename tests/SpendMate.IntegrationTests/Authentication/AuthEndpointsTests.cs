@@ -26,6 +26,7 @@ public sealed class AuthEndpointsTests(
 
         var request = new RegisterRequest(
             Email: $"register-{Guid.NewGuid():N}@spendmate.local",
+            PhoneNumber: CreateUniquePhoneNumber(),
             DisplayName: "New Test User",
             Password: "SecurePassword123!",
             FamilyName: "New Test Family");
@@ -68,6 +69,7 @@ public sealed class AuthEndpointsTests(
             "/api/auth/register",
             new RegisterRequest(
                 email,
+                CreateUniquePhoneNumber(),
                 "Invalid Login User",
                 password,
                 "Invalid Login Family"));
@@ -95,6 +97,7 @@ public sealed class AuthEndpointsTests(
 
         var request = new RegisterRequest(
             email,
+            CreateUniquePhoneNumber(),
             "Duplicate Test User",
             "SecurePassword123!",
             "Duplicate Test Family");
@@ -124,6 +127,7 @@ public sealed class AuthEndpointsTests(
 
         var request = new RegisterRequest(
             $"invalid-register-{Guid.NewGuid():N}@spendmate.local",
+            CreateUniquePhoneNumber(),
             "Invalid Registration User",
             "SecurePassword123!",
             " ");
@@ -152,35 +156,6 @@ public sealed class AuthEndpointsTests(
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    private async Task<HttpClient> CreateClientWithCsrfAsync()
-    {
-        var client = factory.CreateClient(
-            new WebApplicationFactoryClientOptions
-            {
-                BaseAddress = new Uri("https://localhost")
-            });
-
-        var csrfResponse = await client.GetAsync("/api/auth/csrf");
-        csrfResponse.EnsureSuccessStatusCode();
-
-        var csrfResult = await csrfResponse.Content
-            .ReadFromJsonAsync<CsrfTokenResponse>();
-
-        if (string.IsNullOrWhiteSpace(csrfResult?.RequestToken))
-        {
-            client.Dispose();
-
-            throw new InvalidOperationException(
-                "Failed to obtain CSRF token.");
-        }
-
-        client.DefaultRequestHeaders.Add(
-            "X-CSRF-TOKEN",
-            csrfResult.RequestToken);
-
-        return client;
-    }
-
     [Fact]
     public async Task Login_WithValidCredentials_ReturnsUserAndAuthenticationCookie()
     {
@@ -194,6 +169,7 @@ public sealed class AuthEndpointsTests(
             "/api/auth/register",
             new RegisterRequest(
                 Email: email,
+                PhoneNumber: CreateUniquePhoneNumber(),
                 DisplayName: "Login Test User",
                 Password: password,
                 FamilyName: "Login Test Family"));
@@ -251,6 +227,7 @@ public sealed class AuthEndpointsTests(
             "/api/auth/register",
             new RegisterRequest(
                 Email: $"logout-{Guid.NewGuid():N}@spendmate.local",
+                PhoneNumber: CreateUniquePhoneNumber(),
                 DisplayName: "Logout Test User",
                 Password: "SecurePassword123!",
                 FamilyName: "Logout Test Family"));
@@ -406,6 +383,40 @@ public sealed class AuthEndpointsTests(
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    private static string CreateUniquePhoneNumber()
+    {
+        return $"+628{Random.Shared.Next(100_000_000, 999_999_999)}";
+    }
+
+    private async Task<HttpClient> CreateClientWithCsrfAsync()
+    {
+        var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://localhost")
+            });
+
+        var csrfResponse = await client.GetAsync("/api/auth/csrf");
+        csrfResponse.EnsureSuccessStatusCode();
+
+        var csrfResult = await csrfResponse.Content
+            .ReadFromJsonAsync<CsrfTokenResponse>();
+
+        if (string.IsNullOrWhiteSpace(csrfResult?.RequestToken))
+        {
+            client.Dispose();
+
+            throw new InvalidOperationException(
+                "Failed to obtain CSRF token.");
+        }
+
+        client.DefaultRequestHeaders.Add(
+            "X-CSRF-TOKEN",
+            csrfResult.RequestToken);
+
+        return client;
     }
 
     private async Task RefreshCsrfTokenAsync(HttpClient client)

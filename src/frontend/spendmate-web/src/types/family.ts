@@ -17,3 +17,15 @@ export interface SetActiveFamilyRequest {
 export interface CreateFamilyRequest {
   name: string;
 }
+
+export interface FamilyMember {
+  userId: string;
+  displayName: string;
+  email: string;
+  role: FamilyRole;
+  joinedAtUtc: string;
+}
+
+export interface UpdateFamilyMemberRoleRequest {
+  role: FamilyRole;
+}
