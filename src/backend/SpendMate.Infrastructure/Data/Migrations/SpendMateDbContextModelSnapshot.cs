@@ -187,6 +187,66 @@ namespace SpendMate.Infrastructure.Data.Migrations
                     b.ToTable("FamilyMemberships");
                 });
 
+            modelBuilder.Entity("SpendMate.Domain.Entities.PhoneVerificationChallenge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CodeCiphertext")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EncryptionNonce")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("EncryptionTag")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("LastSentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasFilter("\"ConsumedAtUtc\" IS NULL");
+
+                    b.ToTable("PhoneVerificationChallenges");
+                });
+
             modelBuilder.Entity("SpendMate.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -223,6 +283,13 @@ namespace SpendMate.Infrastructure.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset?>("PhoneVerifiedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ActiveFamilyId");
@@ -233,6 +300,10 @@ namespace SpendMate.Infrastructure.Data.Migrations
                     b.HasIndex("EmailVerificationTokenHash")
                         .IsUnique()
                         .HasFilter("\"EmailVerificationTokenHash\" IS NOT NULL");
+
+                    b.HasIndex("PhoneNumber")
+                        .IsUnique()
+                        .HasFilter("\"PhoneNumber\" IS NOT NULL");
 
                     b.ToTable("Users");
                 });
@@ -305,6 +376,17 @@ namespace SpendMate.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Family");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("SpendMate.Domain.Entities.PhoneVerificationChallenge", b =>
+                {
+                    b.HasOne("SpendMate.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("User");
                 });

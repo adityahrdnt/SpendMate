@@ -20,6 +20,10 @@ public interface IUserRepository
         string email,
         CancellationToken cancellationToken = default);
 
+    Task<User?> GetByPhoneNumberAsync(
+        string phoneNumber,
+        CancellationToken cancellationToken = default);
+
     Task AddWithActiveFamilyAsync(
         User user,
         Guid activeFamilyId,

@@ -8,6 +8,7 @@ export interface AuthResponse {
 
 export interface RegisterRequest {
   email: string;
+  phoneNumber: string;
   displayName: string;
   password: string;
   familyName: string;

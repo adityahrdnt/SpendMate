@@ -112,6 +112,122 @@ public static class AuthEndpoints
         })
         .RequireAuthorization();
 
+        // Request phone verification OTP
+        group.MapPost("/request-phone-verification", async (
+            PhoneVerificationService phoneVerificationService,
+            SpendMate.Application.Abstractions.ICurrentUser currentUser,
+            CancellationToken cancellationToken,
+            ILogger<Program> logger) =>
+        {
+            PhoneOtpRequestResult result;
+
+            try
+            {
+                result = await phoneVerificationService.RequestOtpAsync(
+                    currentUser.UserId,
+                    cancellationToken);
+            }
+            catch (PhoneOtpDeliveryException ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Phone OTP delivery is unavailable for user {UserId}.",
+                    currentUser.UserId);
+
+                return Results.Problem(
+                    statusCode: StatusCodes.Status503ServiceUnavailable,
+                    title: "Phone verification is temporarily unavailable.");
+            }
+
+            return result.Status switch
+            {
+                PhoneOtpRequestStatus.Sent => Results.Ok(new
+                {
+                    message = "Verification code sent.",
+                    result.ExpiresAtUtc,
+                    result.ResendAvailableAtUtc
+                }),
+
+                PhoneOtpRequestStatus.Cooldown => Results.Json(
+                    new
+                    {
+                        error = "Please wait before requesting another code.",
+                        result.ResendAvailableAtUtc
+                    },
+                    statusCode: StatusCodes.Status429TooManyRequests),
+
+                PhoneOtpRequestStatus.MaxAttemptsReached =>
+                    Results.Json(
+                        new { error = "Maximum verification attempts reached." },
+                        statusCode: StatusCodes.Status429TooManyRequests),
+
+                PhoneOtpRequestStatus.AlreadyVerified => Results.Ok(
+                    new { message = "Phone number is already verified." }),
+
+                PhoneOtpRequestStatus.PhoneNumberRequired =>
+                    Results.BadRequest(
+                        new { error = "Phone number is required." }),
+
+                PhoneOtpRequestStatus.UserNotFound =>
+                    Results.NotFound(new { error = "User not found." }),
+
+                _ => Results.Problem()
+            };
+        })
+        .RequireAuthorization();
+
+        // Verify phone verification OTP
+        group.MapPost("/verify-phone", async (
+            VerifyPhoneOtpRequest request,
+            PhoneVerificationService phoneVerificationService,
+            SpendMate.Application.Abstractions.ICurrentUser currentUser,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Code))
+            {
+                return Results.BadRequest(
+                    new { error = "Verification code is required." });
+            }
+
+            var result = await phoneVerificationService.VerifyOtpAsync(
+                currentUser.UserId,
+                request.Code,
+                cancellationToken);
+
+            return result.Status switch
+            {
+                PhoneOtpVerificationStatus.Verified => Results.Ok(
+                    new { message = "Phone number verified successfully." }),
+
+                PhoneOtpVerificationStatus.InvalidCode =>
+                    Results.BadRequest(
+                        new { error = "Invalid verification code." }),
+
+                PhoneOtpVerificationStatus.Expired =>
+                    Results.Json(
+                        new { error = "Verification code has expired." },
+                        statusCode: StatusCodes.Status410Gone),
+
+                PhoneOtpVerificationStatus.MaxAttemptsReached =>
+                    Results.Json(
+                        new { error = "Maximum verification attempts reached." },
+                        statusCode: StatusCodes.Status429TooManyRequests),
+
+                PhoneOtpVerificationStatus.ChallengeNotFound =>
+                    Results.NotFound(
+                        new { error = "Verification challenge not found." }),
+
+                PhoneOtpVerificationStatus.AlreadyVerified => Results.Ok(
+                    new { message = "Phone number is already verified." }),
+
+                PhoneOtpVerificationStatus.UserNotFound =>
+                    Results.NotFound(new { error = "User not found." }),
+
+                _ => Results.Problem()
+            };
+        })
+        .RequireAuthorization();
+
         // Current authenticated user
         app.MapGet("/api/me", async (
             SpendMate.Application.Abstractions.ICurrentUser currentUser,

@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.12" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="Moq" Version="4.21.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
@@ -22,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\backend\SpendMate.Domain\SpendMate.Domain.csproj" />
     <ProjectReference Include="..\..\src\backend\SpendMate.Application\SpendMate.Application.csproj" />
+    <ProjectReference Include="..\..\src\backend\SpendMate.Infrastructure\SpendMate.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
