@@ -18,6 +18,11 @@ public interface IFamilyInvitationRepository
         string normalizedEmail,
         CancellationToken cancellationToken = default);
 
+    Task<FamilyInvitation?> GetPendingByFamilyAndPhoneAsync(
+        Guid familyId,
+        string phoneNumber,
+        CancellationToken cancellationToken = default);
+
     Task AddAsync(
         FamilyInvitation invitation,
         CancellationToken cancellationToken = default);

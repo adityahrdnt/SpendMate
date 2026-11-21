@@ -51,6 +51,63 @@ public sealed class FamilyService(
             .ToList();
     }
 
+    public async Task AddMemberByPhoneAsync(
+        Guid familyId,
+        string phoneNumber,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+
+        var normalizedPhoneNumber = phoneNumber?.Trim();
+
+        if (string.IsNullOrWhiteSpace(normalizedPhoneNumber) ||
+            normalizedPhoneNumber.Length is < 3 or > 16 ||
+            normalizedPhoneNumber[0] != '+' ||
+            normalizedPhoneNumber[1] is < '1' or > '9' ||
+            normalizedPhoneNumber.Skip(2).Any(
+                character => character is < '0' or > '9'))
+        {
+            throw new ArgumentException(
+                "A valid phone number in E.164 format is required.",
+                nameof(phoneNumber));
+        }
+
+        var result = await membershipRepository.AddMemberByPhoneAsync(
+            familyId,
+            currentUser.UserId,
+            normalizedPhoneNumber,
+            DateTimeOffset.UtcNow,
+            cancellationToken);
+
+        switch (result)
+        {
+            case FamilyMembershipOperationResult.Success:
+                return;
+
+            case FamilyMembershipOperationResult.FamilyNotFound:
+            case FamilyMembershipOperationResult.NotSharedFamily:
+            case FamilyMembershipOperationResult.UserNotFound:
+                throw new KeyNotFoundException(
+                    "The family or user was not found.");
+
+            case FamilyMembershipOperationResult.RequesterNotOwner:
+                throw new UnauthorizedAccessException(
+                    "Only family Owners can add members.");
+
+            case FamilyMembershipOperationResult.PhoneNotVerified:
+                throw new InvalidOperationException(
+                    "The user's phone number has not been verified.");
+
+            case FamilyMembershipOperationResult.AlreadyMember:
+                throw new InvalidOperationException(
+                    "The user is already a member of this family.");
+
+            default:
+                throw new InvalidOperationException(
+                    "The family member could not be added.");
+        }
+    }
+
     public async Task UpdateMemberRoleAsync(
         Guid familyId,
         Guid targetUserId,

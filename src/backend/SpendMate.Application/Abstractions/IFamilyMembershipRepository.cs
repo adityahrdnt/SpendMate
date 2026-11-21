@@ -21,6 +21,13 @@ public interface IFamilyMembershipRepository
         DateTimeOffset acceptedAtUtc,
         CancellationToken cancellationToken = default);
 
+    Task<FamilyMembershipOperationResult> AddMemberByPhoneAsync(
+        Guid familyId,
+        Guid requesterUserId,
+        string phoneNumber,
+        DateTimeOffset joinedAtUtc,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<FamilyMembership>> GetMembersAsync(
         Guid familyId,
         CancellationToken cancellationToken = default);

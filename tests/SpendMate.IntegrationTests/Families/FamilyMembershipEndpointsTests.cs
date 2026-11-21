@@ -63,6 +63,27 @@ public sealed class FamilyMembershipEndpointsTests(
         return familyId;
     }
 
+    private async Task SetUserPhoneAsync(
+        Guid userId,
+        string phoneNumber,
+        bool isVerified)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+
+        var dbContext = scope.ServiceProvider
+            .GetRequiredService<SpendMateDbContext>();
+
+        var user = await dbContext.Users
+            .SingleAsync(x => x.Id == userId);
+
+        user.PhoneNumber = phoneNumber;
+        user.PhoneVerifiedAtUtc = isVerified
+            ? DateTimeOffset.UtcNow
+            : null;
+
+        await dbContext.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task GetMembers_AsOwner_ReturnsFamilyMembers()
     {
@@ -768,6 +789,173 @@ public sealed class FamilyMembershipEndpointsTests(
         // Act
         var response = await _client.DeleteAsync(
             $"/api/families/{familyId}/members/{nonMemberUserId}");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AddMemberByPhone_AsOwner_AddsVerifiedUserWithoutChangingActiveFamily()
+    {
+        // Arrange
+        const string phoneNumber = "+6281234567891";
+
+        var familyId = await CreateSharedFamilyAsync(
+            (SpendMateApiFactory.TestUserId, FamilyRole.Owner));
+
+        await SetUserPhoneAsync(
+            SpendMateApiFactory.SecondTestUserId,
+            phoneNumber,
+            isVerified: true);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/api/families/{familyId}/members",
+            new AddFamilyMemberByPhoneRequest(phoneNumber));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+
+        var dbContext = scope.ServiceProvider
+            .GetRequiredService<SpendMateDbContext>();
+
+        var membership = await dbContext.FamilyMemberships
+            .SingleAsync(m =>
+                m.FamilyId == familyId &&
+                m.UserId == SpendMateApiFactory.SecondTestUserId);
+
+        Assert.Equal(FamilyRole.Member, membership.Role);
+
+        var targetUser = await dbContext.Users
+            .SingleAsync(u =>
+                u.Id == SpendMateApiFactory.SecondTestUserId);
+
+        Assert.Equal(
+            SpendMateApiFactory.CrossFamilyId,
+            targetUser.ActiveFamilyId);
+    }
+
+    [Fact]
+    public async Task AddMemberByPhone_WhenPhoneIsNotVerified_ReturnsConflict()
+    {
+        // Arrange
+        const string phoneNumber = "+6281234567892";
+
+        var familyId = await CreateSharedFamilyAsync(
+            (SpendMateApiFactory.TestUserId, FamilyRole.Owner));
+
+        await SetUserPhoneAsync(
+            SpendMateApiFactory.SecondTestUserId,
+            phoneNumber,
+            isVerified: false);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/api/families/{familyId}/members",
+            new AddFamilyMemberByPhoneRequest(phoneNumber));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AddMemberByPhone_WhenUserIsAlreadyMember_ReturnsConflict()
+    {
+        // Arrange
+        const string phoneNumber = "+6281234567893";
+
+        var familyId = await CreateSharedFamilyAsync(
+            (SpendMateApiFactory.TestUserId, FamilyRole.Owner),
+            (SpendMateApiFactory.SecondTestUserId, FamilyRole.Member));
+
+        await SetUserPhoneAsync(
+            SpendMateApiFactory.SecondTestUserId,
+            phoneNumber,
+            isVerified: true);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/api/families/{familyId}/members",
+            new AddFamilyMemberByPhoneRequest(phoneNumber));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AddMemberByPhone_AsMember_ReturnsForbidden()
+    {
+        // Arrange
+        const string phoneNumber = "+6281234567894";
+
+        var familyId = await CreateSharedFamilyAsync(
+            (SpendMateApiFactory.TestUserId, FamilyRole.Owner),
+            (SpendMateApiFactory.SecondTestUserId, FamilyRole.Member));
+
+        await SetUserPhoneAsync(
+            SpendMateApiFactory.TestUserId,
+            phoneNumber,
+            isVerified: true);
+
+        using var memberClient =
+            await factory.CreateAuthenticatedClientWithCsrfAsync(
+                SpendMateApiFactory.SecondTestUserId);
+
+        // Act
+        var response = await memberClient.PostAsJsonAsync(
+            $"/api/families/{familyId}/members",
+            new AddFamilyMemberByPhoneRequest(phoneNumber));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AddMemberByPhone_WhenUserDoesNotExist_ReturnsNotFound()
+    {
+        // Arrange
+        const string phoneNumber = "+6281234567895";
+
+        var familyId = await CreateSharedFamilyAsync(
+            (SpendMateApiFactory.TestUserId, FamilyRole.Owner));
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/api/families/{familyId}/members",
+            new AddFamilyMemberByPhoneRequest(phoneNumber));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AddMemberByPhone_WithInvalidPhoneNumber_ReturnsBadRequest()
+    {
+        // Arrange
+        var familyId = await CreateSharedFamilyAsync(
+            (SpendMateApiFactory.TestUserId, FamilyRole.Owner));
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/api/families/{familyId}/members",
+            new AddFamilyMemberByPhoneRequest("08123456789"));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AddMemberByPhone_WhenFamilyDoesNotExist_ReturnsNotFound()
+    {
+        // Arrange
+        var familyId = Guid.NewGuid();
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/api/families/{familyId}/members",
+            new AddFamilyMemberByPhoneRequest("+6281234567896"));
 
         // Assert
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);

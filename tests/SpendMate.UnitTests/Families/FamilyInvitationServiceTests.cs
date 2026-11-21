@@ -96,7 +96,9 @@ public class FamilyInvitationServiceTests
 
         var result = await service.CreateAsync(
             _familyId,
-            new CreateFamilyInvitationRequest(" Guest@Example.com "));
+            new CreateFamilyInvitationRequest(
+                InvitationType: FamilyInvitationType.Email,
+                Email: " Guest@Example.com "));
 
         Assert.NotNull(savedInvitation);
         Assert.Equal("guest@example.com", savedInvitation.Email);
@@ -105,20 +107,33 @@ public class FamilyInvitationServiceTests
         Assert.Equal(_userId, savedInvitation.InvitedByUserId);
         Assert.Equal(FamilyInvitationStatus.Pending, savedInvitation.Status);
 
+        // Extract the raw token from the invitation link.
+        var invitationUri = new Uri(result.InvitationLink);
+
+        var token = invitationUri.Query
+            .TrimStart('?')
+            .Split('&')
+            .Select(parameter => parameter.Split('=', 2))
+            .Where(parts => parts.Length == 2 && parts[0] == "token")
+            .Select(parts => Uri.UnescapeDataString(parts[1]))
+            .Single();
+
+        Assert.False(string.IsNullOrWhiteSpace(token));
+
         // Token must be URL-safe Base64 without padding.
-        Assert.Equal(43, result.Token.Length);
-        Assert.DoesNotContain('+', result.Token);
-        Assert.DoesNotContain('/', result.Token);
-        Assert.DoesNotContain('=', result.Token);
+        Assert.Equal(43, token.Length);
+        Assert.DoesNotContain('+', token);
+        Assert.DoesNotContain('/', token);
+        Assert.DoesNotContain('=', token);
 
         Assert.All(
-            result.Token,
+            token,
             character => Assert.True(
                 char.IsAsciiLetterOrDigit(character) ||
                 character is '-' or '_'));
 
         // Token must contain 32 random bytes (256-bit entropy).
-        var base64Token = result.Token
+        var base64Token = token
             .Replace('-', '+')
             .Replace('_', '/');
 
@@ -132,14 +147,14 @@ public class FamilyInvitationServiceTests
 
         // Database must store SHA-256 hash, never the raw token.
         var expectedHash = Convert.ToHexString(
-            SHA256.HashData(Encoding.UTF8.GetBytes(result.Token)));
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
         Assert.Equal(64, savedInvitation.TokenHash.Length);
         Assert.Equal(expectedHash, savedInvitation.TokenHash);
-        Assert.NotEqual(result.Token, savedInvitation.TokenHash);
+        Assert.NotEqual(token, savedInvitation.TokenHash);
 
         _invitationLinkBuilder.Verify(
-            x => x.Build(result.Token),
+            x => x.Build(token),
             Times.Once);
 
         _emailSender.Verify(
@@ -147,7 +162,7 @@ public class FamilyInvitationServiceTests
                 "guest@example.com",
                 It.IsAny<string>(),
                 It.Is<string>(body => body.Contains(
-                    $"token={result.Token}")),
+                    $"token={token}")),
                 It.IsAny<CancellationToken>()),
             Times.Once);
 
@@ -192,7 +207,9 @@ public class FamilyInvitationServiceTests
 
         var result = await service.CreateAsync(
             _familyId,
-            new CreateFamilyInvitationRequest("guest@example.com"));
+            new CreateFamilyInvitationRequest(
+                InvitationType: FamilyInvitationType.Email,
+                Email: "guest@example.com"));
 
         Assert.True(result.WasResent);
         Assert.Equal(originalCreatedAt, existingInvitation.CreatedAtUtc);
@@ -250,7 +267,9 @@ public class FamilyInvitationServiceTests
 
         var result = await service.CreateAsync(
             _familyId,
-            new CreateFamilyInvitationRequest("guest@example.com"));
+            new CreateFamilyInvitationRequest(
+                InvitationType: FamilyInvitationType.Email,
+                Email: "guest@example.com"));
 
         Assert.Equal(FamilyInvitationStatus.Expired, expiredInvitation.Status);
 
@@ -275,7 +294,9 @@ public class FamilyInvitationServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CreateAsync(
                 _familyId,
-                new CreateFamilyInvitationRequest("guest@example.com")));
+                new CreateFamilyInvitationRequest(
+                    InvitationType: FamilyInvitationType.Email,
+                    Email: "guest@example.com")));
 
         _invitationRepository.Verify(
             x => x.AddAsync(
@@ -299,7 +320,9 @@ public class FamilyInvitationServiceTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.CreateAsync(
                 _familyId,
-                new CreateFamilyInvitationRequest("guest@example.com")));
+                new CreateFamilyInvitationRequest(
+                    InvitationType: FamilyInvitationType.Email,
+                    Email: "guest@example.com")));
     }
 
     [Fact]
@@ -312,7 +335,9 @@ public class FamilyInvitationServiceTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.CreateAsync(
                 _familyId,
-                new CreateFamilyInvitationRequest("guest@example.com")));
+                new CreateFamilyInvitationRequest(
+                    InvitationType: FamilyInvitationType.Email,
+                    Email: "guest@example.com")));
 
         _familyRepository.Verify(
             x => x.GetSharedFamilyOwnedByUserAsync(
@@ -334,14 +359,16 @@ public class FamilyInvitationServiceTests
         await Assert.ThrowsAsync<ArgumentException>(() =>
             service.CreateAsync(
                 _familyId,
-                new CreateFamilyInvitationRequest(email)));
+                new CreateFamilyInvitationRequest(
+                    InvitationType: FamilyInvitationType.Email,
+                    Email: email)));
 
         _familyRepository.Verify(
             x => x.GetSharedFamilyOwnedByUserAsync(
                 It.IsAny<Guid>(),
                 It.IsAny<Guid>(),
                 It.IsAny<CancellationToken>()),
-            Times.Never);
+            Times.Once);
     }
 
     [Fact]

@@ -33,13 +33,20 @@ public sealed class FamilyInvitationEndpointsTests(
         return Task.CompletedTask;
     }
 
+    private static string CreateUniquePhoneNumber()
+    {
+        return $"+6281{Random.Shared.Next(10000000, 99999999)}";
+    }
+
     [Fact]
     public async Task CreateInvitation_WithValidRequest_ReturnsCreatedAndSendsEmail()
     {
         // Arrange
         const string recipient = "guest@example.com";
 
-        var request = new CreateFamilyInvitationRequest(recipient);
+        var request = new CreateFamilyInvitationRequest(
+            InvitationType: FamilyInvitationType.Email,
+            Email: recipient);
 
         // Act
         var response = await _client.PostAsJsonAsync(
@@ -49,8 +56,12 @@ public sealed class FamilyInvitationEndpointsTests(
         // Assert: API response
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
-        var invitation =
-            await response.Content.ReadFromJsonAsync<FamilyInvitationResponse>();
+        var createResult =
+            await response.Content.ReadFromJsonAsync<CreateFamilyInvitationResult>();
+
+        Assert.NotNull(createResult);
+
+        var invitation = createResult.Invitation;
 
         Assert.NotNull(invitation);
         Assert.NotEqual(Guid.Empty, invitation.Id);
@@ -65,15 +76,23 @@ public sealed class FamilyInvitationEndpointsTests(
             TimeSpan.FromDays(7) - TimeSpan.FromSeconds(5),
             TimeSpan.FromDays(7) + TimeSpan.FromSeconds(5));
 
-        // Raw token and token hash must never be exposed in the API response.
+        Assert.Contains(
+            "/invitations/accept?token=",
+            createResult.InvitationLink);
+
+        Assert.False(createResult.WasResent);
+
+        // Token hash must never be exposed in the API response.
         var responseBody = await response.Content.ReadAsStringAsync();
 
-        Assert.DoesNotContain("token", responseBody, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("tokenHash", responseBody, StringComparison.OrdinalIgnoreCase);
 
         // Assert: email delivery
         var email = Assert.Single(factory.EmailSender.SentEmails);
 
+        Assert.Equal(FamilyInvitationType.Email, invitation.InvitationType);
+        Assert.Equal(recipient, invitation.Email);
+        Assert.Null(invitation.PhoneNumber);
         Assert.Equal(recipient, email.Recipient);
         Assert.Contains("Invitation to join", email.Subject);
         Assert.Contains("Integration Test Shared Family", email.HtmlBody);
@@ -81,12 +100,74 @@ public sealed class FamilyInvitationEndpointsTests(
     }
 
     [Fact]
-    public async Task CreateInvitation_WithExistingPendingInvitation_ResendsInvitation()
+    public async Task CreatePhoneInvitation_WithValidRequest_ReturnsCreatedWithoutSendingEmail()
     {
         // Arrange
-        const string recipient = "resend@example.com";
+        var phoneNumber = CreateUniquePhoneNumber();
 
-        var request = new CreateFamilyInvitationRequest(recipient);
+        var request = new CreateFamilyInvitationRequest(
+            InvitationType: FamilyInvitationType.Phone,
+            PhoneNumber: phoneNumber);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/api/families/{SpendMateApiFactory.TestSharedFamilyId}/invitations",
+            request);
+
+        // Assert: API response
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var createResult =
+            await response.Content.ReadFromJsonAsync<CreateFamilyInvitationResult>();
+
+        Assert.NotNull(createResult);
+
+        var invitation = createResult.Invitation;
+
+        Assert.NotNull(invitation);
+        Assert.NotEqual(Guid.Empty, invitation.Id);
+        Assert.Equal(
+            SpendMateApiFactory.TestSharedFamilyId,
+            invitation.FamilyId);
+        Assert.Equal(FamilyInvitationType.Phone, invitation.InvitationType);
+        Assert.Equal(phoneNumber, invitation.PhoneNumber);
+        Assert.Null(invitation.Email);
+        Assert.Equal("Pending", invitation.Status);
+
+        Assert.Contains(
+            "/invitations/accept?token=",
+            createResult.InvitationLink);
+
+        Assert.False(createResult.WasResent);
+
+        // Phone invitation must not trigger email delivery.
+        Assert.Empty(factory.EmailSender.SentEmails);
+
+        // Assert: database state
+        await using var scope = factory.Services.CreateAsyncScope();
+
+        var dbContext = scope.ServiceProvider
+            .GetRequiredService<SpendMateDbContext>();
+
+        var storedInvitation = await dbContext.FamilyInvitations
+            .SingleAsync(x => x.Id == invitation.Id);
+
+        Assert.Equal(FamilyInvitationType.Phone, storedInvitation.InvitationType);
+        Assert.Equal(phoneNumber, storedInvitation.PhoneNumber);
+        Assert.Null(storedInvitation.Email);
+        Assert.Null(storedInvitation.NormalizedEmail);
+        Assert.Equal(FamilyInvitationStatus.Pending, storedInvitation.Status);
+    }
+
+    [Fact]
+    public async Task CreatePhoneInvitation_WithExistingPendingInvitation_ResendsInvitation()
+    {
+        // Arrange
+        var phoneNumber = CreateUniquePhoneNumber();
+
+        var request = new CreateFamilyInvitationRequest(
+            InvitationType: FamilyInvitationType.Phone,
+            PhoneNumber: phoneNumber);
 
         var endpoint =
             $"/api/families/{SpendMateApiFactory.TestSharedFamilyId}/invitations";
@@ -95,10 +176,94 @@ public sealed class FamilyInvitationEndpointsTests(
 
         Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
 
-        var firstInvitation =
-            await firstResponse.Content.ReadFromJsonAsync<FamilyInvitationResponse>();
+        var firstResult =
+            await firstResponse.Content.ReadFromJsonAsync<CreateFamilyInvitationResult>();
+
+        Assert.NotNull(firstResult);
+        Assert.False(firstResult.WasResent);
+
+        var firstInvitation = firstResult.Invitation;
 
         Assert.NotNull(firstInvitation);
+
+        // Act: resend the same phone invitation.
+        var secondResponse = await _client.PostAsJsonAsync(endpoint, request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Created, secondResponse.StatusCode);
+
+        var secondResult =
+            await secondResponse.Content.ReadFromJsonAsync<CreateFamilyInvitationResult>();
+
+        Assert.NotNull(secondResult);
+        Assert.True(secondResult.WasResent);
+
+        var secondInvitation = secondResult.Invitation;
+
+        Assert.NotNull(secondInvitation);
+
+        // Resend must reuse the same invitation record.
+        Assert.Equal(firstInvitation.Id, secondInvitation.Id);
+        Assert.Equal(firstInvitation.FamilyId, secondInvitation.FamilyId);
+        Assert.Equal(FamilyInvitationType.Phone, secondInvitation.InvitationType);
+        Assert.Equal(phoneNumber, secondInvitation.PhoneNumber);
+        Assert.Null(secondInvitation.Email);
+        Assert.Equal("Pending", secondInvitation.Status);
+
+        // CreatedAtUtc remains unchanged; expiration is renewed.
+        Assert.InRange(
+            Math.Abs((
+                firstInvitation.CreatedAtUtc -
+                secondInvitation.CreatedAtUtc).TotalMilliseconds),
+            0,
+            1);
+
+        Assert.True(
+            secondInvitation.ExpiresAtUtc > firstInvitation.ExpiresAtUtc);
+
+        Assert.Contains(
+            "/invitations/accept?token=",
+            firstResult.InvitationLink);
+
+        Assert.Contains(
+            "/invitations/accept?token=",
+            secondResult.InvitationLink);
+
+        Assert.NotEqual(
+            firstResult.InvitationLink,
+            secondResult.InvitationLink);
+
+        // Phone invitation resend must not trigger email delivery.
+        Assert.Empty(factory.EmailSender.SentEmails);
+    }
+
+    [Fact]
+    public async Task CreateInvitation_WithExistingPendingInvitation_ResendsInvitation()
+    {
+        // Arrange
+        const string recipient = "resend@example.com";
+
+        var request = new CreateFamilyInvitationRequest(
+            InvitationType: FamilyInvitationType.Email,
+            Email: recipient);
+
+        var endpoint =
+            $"/api/families/{SpendMateApiFactory.TestSharedFamilyId}/invitations";
+
+        var firstResponse = await _client.PostAsJsonAsync(endpoint, request);
+
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+
+        var firstResult =
+            await firstResponse.Content.ReadFromJsonAsync<CreateFamilyInvitationResult>();
+
+        Assert.NotNull(firstResult);
+        Assert.False(firstResult.WasResent);
+
+        var firstInvitation = firstResult.Invitation;
+
+        Assert.NotNull(firstInvitation);
+        Assert.Equal(FamilyInvitationType.Email, firstInvitation.InvitationType);
 
         // Clear the first captured email to inspect the resend.
         factory.EmailSender.Clear();
@@ -109,10 +274,16 @@ public sealed class FamilyInvitationEndpointsTests(
         // Assert
         Assert.Equal(HttpStatusCode.Created, secondResponse.StatusCode);
 
-        var secondInvitation =
-            await secondResponse.Content.ReadFromJsonAsync<FamilyInvitationResponse>();
+        var secondResult =
+            await secondResponse.Content.ReadFromJsonAsync<CreateFamilyInvitationResult>();
+
+        Assert.NotNull(secondResult);
+        Assert.True(secondResult.WasResent);
+
+        var secondInvitation = secondResult.Invitation;
 
         Assert.NotNull(secondInvitation);
+        Assert.Equal(FamilyInvitationType.Email, secondInvitation.InvitationType);
 
         // Resend must reuse the same invitation record.
         Assert.Equal(firstInvitation.Id, secondInvitation.Id);
@@ -135,6 +306,7 @@ public sealed class FamilyInvitationEndpointsTests(
 
         Assert.Equal(recipient, email.Recipient);
         Assert.Contains("/invitations/accept?token=", email.HtmlBody);
+        Assert.Contains("/invitations/accept?token=", secondResult.InvitationLink);
     }
 
     [Fact]
@@ -142,7 +314,8 @@ public sealed class FamilyInvitationEndpointsTests(
     {
         // Arrange
         var request = new CreateFamilyInvitationRequest(
-            "revoke@example.com");
+            InvitationType: FamilyInvitationType.Email,
+            Email: "revoke@example.com");
 
         var createResponse = await _client.PostAsJsonAsync(
             $"/api/families/{SpendMateApiFactory.TestSharedFamilyId}/invitations",
@@ -150,8 +323,12 @@ public sealed class FamilyInvitationEndpointsTests(
 
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
 
-        var createdInvitation =
-            await createResponse.Content.ReadFromJsonAsync<FamilyInvitationResponse>();
+        var createResult =
+            await createResponse.Content.ReadFromJsonAsync<CreateFamilyInvitationResult>();
+
+        Assert.NotNull(createResult);
+
+        var createdInvitation = createResult.Invitation;
 
         Assert.NotNull(createdInvitation);
 
@@ -171,6 +348,51 @@ public sealed class FamilyInvitationEndpointsTests(
     }
 
     [Fact]
+    public async Task RevokePhoneInvitation_WithPendingInvitation_ReturnsRevoked()
+    {
+        // Arrange
+        const string phoneNumber = "+6281234567890";
+
+        var request = new CreateFamilyInvitationRequest(
+            InvitationType: FamilyInvitationType.Phone,
+            PhoneNumber: phoneNumber);
+
+        var createResponse = await _client.PostAsJsonAsync(
+            $"/api/families/{SpendMateApiFactory.TestSharedFamilyId}/invitations",
+            request);
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var createResult =
+            await createResponse.Content.ReadFromJsonAsync<CreateFamilyInvitationResult>();
+
+        Assert.NotNull(createResult);
+
+        var createdInvitation = createResult.Invitation;
+
+        Assert.NotNull(createdInvitation);
+
+        // Act
+        var revokeResponse = await _client.DeleteAsync(
+            $"/api/families/{SpendMateApiFactory.TestSharedFamilyId}/invitations/{createdInvitation.Id}");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, revokeResponse.StatusCode);
+
+        var revokedInvitation =
+            await revokeResponse.Content.ReadFromJsonAsync<FamilyInvitationResponse>();
+
+        Assert.NotNull(revokedInvitation);
+        Assert.Equal(createdInvitation.Id, revokedInvitation.Id);
+        Assert.Equal(FamilyInvitationType.Phone, revokedInvitation.InvitationType);
+        Assert.Equal(phoneNumber, revokedInvitation.PhoneNumber);
+        Assert.Null(revokedInvitation.Email);
+        Assert.Equal("Revoked", revokedInvitation.Status);
+
+        Assert.Empty(factory.EmailSender.SentEmails);
+    }
+
+    [Fact]
     public async Task CreateInvitation_AsNonOwner_ReturnsUnauthorized()
     {
         // Arrange
@@ -179,7 +401,8 @@ public sealed class FamilyInvitationEndpointsTests(
                 SpendMateApiFactory.SecondTestUserId);
 
         var request = new CreateFamilyInvitationRequest(
-            "nonowner@example.com");
+            InvitationType: FamilyInvitationType.Email,
+            Email: "nonowner@example.com");
 
         // Act
         var response = await nonOwnerClient.PostAsJsonAsync(
@@ -196,7 +419,8 @@ public sealed class FamilyInvitationEndpointsTests(
     {
         // Arrange: Owner creates an invitation first.
         var request = new CreateFamilyInvitationRequest(
-            "revoke-nonowner@example.com");
+            InvitationType: FamilyInvitationType.Email,
+            Email: "revoke-nonowner@example.com");
 
         var createResponse = await _client.PostAsJsonAsync(
             $"/api/families/{SpendMateApiFactory.TestSharedFamilyId}/invitations",
@@ -204,8 +428,12 @@ public sealed class FamilyInvitationEndpointsTests(
 
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
 
-        var invitation =
-            await createResponse.Content.ReadFromJsonAsync<FamilyInvitationResponse>();
+        var createResult =
+            await createResponse.Content.ReadFromJsonAsync<CreateFamilyInvitationResult>();
+
+        Assert.NotNull(createResult);
+
+        var invitation = createResult.Invitation;
 
         Assert.NotNull(invitation);
 
@@ -226,7 +454,8 @@ public sealed class FamilyInvitationEndpointsTests(
     {
         // Arrange
         var request = new CreateFamilyInvitationRequest(
-            "personal-invite@example.com");
+            InvitationType: FamilyInvitationType.Email,
+            Email: "personal-invite@example.com");
 
         // Act
         var response = await _client.PostAsJsonAsync(
@@ -243,7 +472,8 @@ public sealed class FamilyInvitationEndpointsTests(
     {
         // Arrange
         var request = new CreateFamilyInvitationRequest(
-            "integration-test@spendmate.local");
+            InvitationType: FamilyInvitationType.Email,
+            Email: "integration-test@spendmate.local");
 
         // Act
         var response = await _client.PostAsJsonAsync(
@@ -281,7 +511,8 @@ public sealed class FamilyInvitationEndpointsTests(
             csrfToken.RequestToken);
 
         var request = new CreateFamilyInvitationRequest(
-            "anonymous@example.com");
+            InvitationType: FamilyInvitationType.Email,
+            Email: "anonymous@example.com");
 
         // Act
         var response = await client.PostAsJsonAsync(
@@ -300,7 +531,8 @@ public sealed class FamilyInvitationEndpointsTests(
         using var client = factory.CreateAuthenticatedClient();
 
         var request = new CreateFamilyInvitationRequest(
-            "no-csrf@example.com");
+            InvitationType: FamilyInvitationType.Email,
+            Email: "no-csrf@example.com");
 
         // Act
         var response = await client.PostAsJsonAsync(
@@ -317,7 +549,8 @@ public sealed class FamilyInvitationEndpointsTests(
     {
         // Arrange
         var request = new CreateFamilyInvitationRequest(
-            "already-revoked@example.com");
+            InvitationType: FamilyInvitationType.Email,
+            Email: "already-revoked@example.com");
 
         var createResponse = await _client.PostAsJsonAsync(
             $"/api/families/{SpendMateApiFactory.TestSharedFamilyId}/invitations",
@@ -325,8 +558,12 @@ public sealed class FamilyInvitationEndpointsTests(
 
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
 
-        var invitation =
-            await createResponse.Content.ReadFromJsonAsync<FamilyInvitationResponse>();
+        var createResult =
+            await createResponse.Content.ReadFromJsonAsync<CreateFamilyInvitationResult>();
+
+        Assert.NotNull(createResult);
+
+        var invitation = createResult.Invitation;
 
         Assert.NotNull(invitation);
 
@@ -363,7 +600,8 @@ public sealed class FamilyInvitationEndpointsTests(
     {
         // Arrange
         var request = new CreateFamilyInvitationRequest(
-            "expired-invitation@example.com");
+            InvitationType: FamilyInvitationType.Email,
+            Email: "expired-invitation@example.com");
 
         var createResponse = await _client.PostAsJsonAsync(
             $"/api/families/{SpendMateApiFactory.TestSharedFamilyId}/invitations",
@@ -371,8 +609,12 @@ public sealed class FamilyInvitationEndpointsTests(
 
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
 
-        var invitation =
-            await createResponse.Content.ReadFromJsonAsync<FamilyInvitationResponse>();
+        var createResult =
+            await createResponse.Content.ReadFromJsonAsync<CreateFamilyInvitationResult>();
+
+        Assert.NotNull(createResult);
+
+        var invitation = createResult.Invitation;
 
         Assert.NotNull(invitation);
 
@@ -484,6 +726,238 @@ public sealed class FamilyInvitationEndpointsTests(
         Assert.NotNull(storedInvitation.AcceptedAtUtc);
     }
 
+    [Fact]
+    public async Task AcceptPhoneInvitation_WithValidToken_ReturnsOkAndCreatesMembership()
+    {
+        // Arrange
+        var recipientId = Guid.NewGuid();
+        var phoneNumber = CreateUniquePhoneNumber();
+        const string recipientEmail = "phone-recipient@example.com";
+        const string token = "integration-test-phone-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider
+                .GetRequiredService<SpendMateDbContext>();
+
+            dbContext.Users.Add(new User
+            {
+                Id = recipientId,
+                Email = recipientEmail,
+                DisplayName = "Phone Invitation Recipient",
+                EmailVerifiedAtUtc = DateTimeOffset.UtcNow,
+                PhoneNumber = phoneNumber,
+                PhoneVerifiedAtUtc = DateTimeOffset.UtcNow
+            });
+
+            dbContext.FamilyInvitations.Add(new FamilyInvitation
+            {
+                FamilyId = SpendMateApiFactory.TestSharedFamilyId,
+                InvitedByUserId = SpendMateApiFactory.TestUserId,
+                InvitationType = FamilyInvitationType.Phone,
+                PhoneNumber = phoneNumber,
+                TokenHash = tokenHash,
+                ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(7)
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var recipientClient =
+            await factory.CreateAuthenticatedClientWithCsrfAsync(recipientId);
+
+        var request = new AcceptFamilyInvitationRequest(token);
+
+        // Act
+        var response = await recipientClient.PostAsJsonAsync(
+            "/api/invitations/accept",
+            request);
+
+        // Assert: API response
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var result =
+            await response.Content.ReadFromJsonAsync<FamilyInvitationResponse>();
+
+        Assert.NotNull(result);
+        Assert.Equal(SpendMateApiFactory.TestSharedFamilyId, result.FamilyId);
+        Assert.Equal(FamilyInvitationType.Phone, result.InvitationType);
+        Assert.Equal(phoneNumber, result.PhoneNumber);
+        Assert.Null(result.Email);
+        Assert.Equal("Accepted", result.Status);
+
+        // Assert: database state
+        await using var verificationScope =
+            factory.Services.CreateAsyncScope();
+
+        var verificationDb = verificationScope.ServiceProvider
+            .GetRequiredService<SpendMateDbContext>();
+
+        var membership = await verificationDb.FamilyMemberships
+            .SingleOrDefaultAsync(x =>
+                x.FamilyId == SpendMateApiFactory.TestSharedFamilyId &&
+                x.UserId == recipientId);
+
+        Assert.NotNull(membership);
+        Assert.Equal(FamilyRole.Member, membership.Role);
+
+        var storedInvitation = await verificationDb.FamilyInvitations
+            .SingleAsync(x => x.TokenHash == tokenHash);
+
+        Assert.Equal(FamilyInvitationStatus.Accepted, storedInvitation.Status);
+        Assert.Equal(recipientId, storedInvitation.AcceptedByUserId);
+        Assert.NotNull(storedInvitation.AcceptedAtUtc);
+    }
+
+    [Fact]
+    public async Task AcceptPhoneInvitation_WithUnverifiedUserPhone_ReturnsUnauthorized()
+    {
+        // Arrange
+        var recipientId = Guid.NewGuid();
+        const string recipientEmail = "unverified-phone@example.com";
+        const string phoneNumber = "+6281234567890";
+        const string token = "unverified-phone-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        var invitationId = Guid.NewGuid();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider
+                .GetRequiredService<SpendMateDbContext>();
+
+            dbContext.Users.Add(new User
+            {
+                Id = recipientId,
+                Email = recipientEmail,
+                DisplayName = "Unverified Phone Recipient",
+                EmailVerifiedAtUtc = DateTimeOffset.UtcNow,
+                PhoneNumber = phoneNumber,
+                PhoneVerifiedAtUtc = null
+            });
+
+            dbContext.FamilyInvitations.Add(new FamilyInvitation
+            {
+                Id = invitationId,
+                FamilyId = SpendMateApiFactory.TestSharedFamilyId,
+                InvitedByUserId = SpendMateApiFactory.TestUserId,
+                InvitationType = FamilyInvitationType.Phone,
+                PhoneNumber = phoneNumber,
+                TokenHash = tokenHash,
+                ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(7)
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var recipientClient =
+            await factory.CreateAuthenticatedClientWithCsrfAsync(recipientId);
+
+        var request = new AcceptFamilyInvitationRequest(token);
+
+        // Act
+        var response = await recipientClient.PostAsJsonAsync(
+            "/api/invitations/accept",
+            request);
+
+        // Assert: API response
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        // Assert: database state
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+
+        var verificationDb = verificationScope.ServiceProvider
+            .GetRequiredService<SpendMateDbContext>();
+
+        var storedInvitation = await verificationDb.FamilyInvitations
+            .SingleAsync(x => x.Id == invitationId);
+
+        Assert.Equal(FamilyInvitationStatus.Pending, storedInvitation.Status);
+
+        Assert.False(
+            await verificationDb.FamilyMemberships.AnyAsync(x =>
+                x.FamilyId == SpendMateApiFactory.TestSharedFamilyId &&
+                x.UserId == recipientId));
+    }
+
+    [Fact]
+    public async Task AcceptPhoneInvitation_WithMismatchedPhoneNumber_ReturnsUnauthorized()
+    {
+        // Arrange
+        var recipientId = Guid.NewGuid();
+        var recipientPhone = CreateUniquePhoneNumber();
+        var invitationPhone = CreateUniquePhoneNumber();
+        const string recipientEmail = "different-phone@example.com";
+        const string token = "mismatched-phone-invitation-token";
+
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+        var invitationId = Guid.NewGuid();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider
+                .GetRequiredService<SpendMateDbContext>();
+
+            dbContext.Users.Add(new User
+            {
+                Id = recipientId,
+                Email = recipientEmail,
+                DisplayName = "Different Phone Recipient",
+                EmailVerifiedAtUtc = DateTimeOffset.UtcNow,
+                PhoneNumber = recipientPhone,
+                PhoneVerifiedAtUtc = DateTimeOffset.UtcNow
+            });
+
+            dbContext.FamilyInvitations.Add(new FamilyInvitation
+            {
+                Id = invitationId,
+                FamilyId = SpendMateApiFactory.TestSharedFamilyId,
+                InvitedByUserId = SpendMateApiFactory.TestUserId,
+                InvitationType = FamilyInvitationType.Phone,
+                PhoneNumber = invitationPhone,
+                TokenHash = tokenHash,
+                ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(7)
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var recipientClient =
+            await factory.CreateAuthenticatedClientWithCsrfAsync(recipientId);
+
+        var request = new AcceptFamilyInvitationRequest(token);
+
+        // Act
+        var response = await recipientClient.PostAsJsonAsync(
+            "/api/invitations/accept",
+            request);
+
+        // Assert: API response
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        // Assert: database state
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+
+        var verificationDb = verificationScope.ServiceProvider
+            .GetRequiredService<SpendMateDbContext>();
+
+        var storedInvitation = await verificationDb.FamilyInvitations
+            .SingleAsync(x => x.Id == invitationId);
+
+        Assert.Equal(FamilyInvitationStatus.Pending, storedInvitation.Status);
+
+        Assert.False(
+            await verificationDb.FamilyMemberships.AnyAsync(x =>
+                x.FamilyId == SpendMateApiFactory.TestSharedFamilyId &&
+                x.UserId == recipientId));
+    }
 
     [Fact]
     public async Task AcceptInvitation_WhenTwoRequestsAreSentConcurrently_OnlyOneSucceeds()
