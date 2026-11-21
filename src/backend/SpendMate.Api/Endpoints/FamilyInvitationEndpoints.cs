@@ -59,7 +59,7 @@ public static class FamilyInvitationEndpoints
                     cancellationToken);
 
                 return Results.Json(
-                    result.Invitation,
+                    result,
                     statusCode: StatusCodes.Status201Created);
             }
             catch (UnauthorizedAccessException)

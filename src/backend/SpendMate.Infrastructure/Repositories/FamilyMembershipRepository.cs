@@ -80,6 +80,87 @@ public sealed class FamilyMembershipRepository(
         return true;
     }
 
+    public async Task<FamilyMembershipOperationResult> AddMemberByPhoneAsync(
+        Guid familyId,
+        Guid requesterUserId,
+        string phoneNumber,
+        DateTimeOffset joinedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(
+                cancellationToken);
+
+        var family = await dbContext.Families
+            .FromSqlInterpolated(
+                $"SELECT * FROM \"Families\" WHERE \"Id\" = {familyId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (family is null)
+        {
+            return FamilyMembershipOperationResult.FamilyNotFound;
+        }
+
+        if (family.Type != FamilyType.Shared)
+        {
+            return FamilyMembershipOperationResult.NotSharedFamily;
+        }
+
+        var requesterMembership = await dbContext.FamilyMemberships
+            .SingleOrDefaultAsync(
+                x => x.FamilyId == familyId &&
+                     x.UserId == requesterUserId,
+                cancellationToken);
+
+        if (requesterMembership?.Role != FamilyRole.Owner)
+        {
+            return FamilyMembershipOperationResult.RequesterNotOwner;
+        }
+
+        var targetUser = await dbContext.Users
+            .FromSqlInterpolated(
+                $"SELECT * FROM \"Users\" WHERE \"PhoneNumber\" = {phoneNumber} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (targetUser is null)
+        {
+            return FamilyMembershipOperationResult.UserNotFound;
+        }
+
+        if (targetUser.PhoneVerifiedAtUtc is null)
+        {
+            return FamilyMembershipOperationResult.PhoneNotVerified;
+        }
+
+        var alreadyMember = await dbContext.FamilyMemberships
+            .AnyAsync(
+                x => x.FamilyId == familyId &&
+                     x.UserId == targetUser.Id,
+                cancellationToken);
+
+        if (alreadyMember)
+        {
+            return FamilyMembershipOperationResult.AlreadyMember;
+        }
+
+        var membership = new FamilyMembership
+        {
+            FamilyId = familyId,
+            UserId = targetUser.Id,
+            Role = FamilyRole.Member,
+            JoinedAtUtc = joinedAtUtc
+        };
+
+        await dbContext.FamilyMemberships.AddAsync(
+            membership,
+            cancellationToken);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return FamilyMembershipOperationResult.Success;
+    }
+
     public async Task<IReadOnlyList<FamilyMembership>> GetMembersAsync(
         Guid familyId,
         CancellationToken cancellationToken = default)

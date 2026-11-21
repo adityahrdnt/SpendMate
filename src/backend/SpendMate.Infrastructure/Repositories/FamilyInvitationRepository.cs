@@ -45,6 +45,20 @@ public sealed class FamilyInvitationRepository(
             .SingleOrDefaultAsync(cancellationToken);
     }
 
+    public Task<FamilyInvitation?> GetPendingByFamilyAndPhoneAsync(
+        Guid familyId,
+        string phoneNumber,
+        CancellationToken cancellationToken = default)
+    {
+        return dbContext.FamilyInvitations
+            .Where(invitation =>
+                invitation.FamilyId == familyId &&
+                invitation.PhoneNumber == phoneNumber &&
+                invitation.InvitationType == FamilyInvitationType.Phone &&
+                invitation.Status == FamilyInvitationStatus.Pending)
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
     public async Task AddAsync(
         FamilyInvitation invitation,
         CancellationToken cancellationToken = default)

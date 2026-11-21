@@ -1,5 +1,7 @@
+
 using System.Net.Mail;
 using System.Security.Cryptography;
+using System.Text;
 using SpendMate.Application.Abstractions;
 using SpendMate.Application.Families.Dtos;
 using SpendMate.Domain.Entities;
@@ -25,11 +27,7 @@ public sealed class FamilyInvitationService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-
         EnsureAuthenticated();
-
-        var email = NormalizeEmail(request.Email);
-        ValidateEmail(email);
 
         var family = await familyRepository
             .GetSharedFamilyOwnedByUserAsync(
@@ -43,30 +41,82 @@ public sealed class FamilyInvitationService(
                 "The family does not exist or you are not an Owner.");
         }
 
-        var isAlreadyMember =
-            await membershipRepository.IsMemberByEmailAsync(
-                familyId,
-                email,
-                cancellationToken);
-
-        if (isAlreadyMember)
-        {
-            throw new InvalidOperationException(
-                "This user is already a member of the family.");
-        }
-
         var now = DateTimeOffset.UtcNow;
-
-        var existingInvitation =
-            await invitationRepository.GetPendingByFamilyAndEmailAsync(
-                familyId,
-                email,
-                cancellationToken);
-
-        var wasResent = false;
-
         var token = GenerateToken();
         var tokenHash = HashToken(token);
+
+        FamilyInvitation? existingInvitation;
+        string? email = null;
+        string? phoneNumber = null;
+
+        switch (request.InvitationType)
+        {
+            case FamilyInvitationType.Email:
+                if (!string.IsNullOrWhiteSpace(request.PhoneNumber))
+                {
+                    throw new ArgumentException(
+                        "Phone number must not be provided for an email invitation.");
+                }
+
+                email = NormalizeEmail(request.Email);
+                ValidateEmail(email);
+
+                if (await membershipRepository.IsMemberByEmailAsync(
+                    familyId,
+                    email,
+                    cancellationToken))
+                {
+                    throw new InvalidOperationException(
+                        "This user is already a member of the family.");
+                }
+
+                existingInvitation =
+                    await invitationRepository.GetPendingByFamilyAndEmailAsync(
+                        familyId,
+                        email,
+                        cancellationToken);
+
+                break;
+
+            case FamilyInvitationType.Phone:
+                if (!string.IsNullOrWhiteSpace(request.Email))
+                {
+                    throw new ArgumentException(
+                        "Email must not be provided for a phone invitation.");
+                }
+
+                phoneNumber = NormalizePhoneNumber(request.PhoneNumber);
+                ValidatePhoneNumber(phoneNumber);
+
+                var existingUser = await userRepository.GetByPhoneNumberAsync(
+                    phoneNumber,
+                    cancellationToken);
+
+                if (existingUser is not null &&
+                    await membershipRepository.IsMemberAsync(
+                        familyId,
+                        existingUser.Id,
+                        cancellationToken))
+                {
+                    throw new InvalidOperationException(
+                        "This user is already a member of the family.");
+                }
+
+                existingInvitation =
+                    await invitationRepository.GetPendingByFamilyAndPhoneAsync(
+                        familyId,
+                        phoneNumber,
+                        cancellationToken);
+
+                break;
+
+            default:
+                throw new ArgumentException(
+                    "A valid invitation type is required.",
+                    nameof(request));
+        }
+
+        var wasResent = false;
 
         if (existingInvitation is not null &&
             existingInvitation.ExpiresAtUtc > now)
@@ -85,12 +135,14 @@ public sealed class FamilyInvitationService(
                     FamilyInvitationStatus.Expired;
             }
 
-            var invitation = new FamilyInvitation
+            existingInvitation = new FamilyInvitation
             {
                 FamilyId = familyId,
                 InvitedByUserId = currentUser.UserId,
+                InvitationType = request.InvitationType,
                 Email = email,
                 NormalizedEmail = email,
+                PhoneNumber = phoneNumber,
                 TokenHash = tokenHash,
                 Status = FamilyInvitationStatus.Pending,
                 CreatedAtUtc = now,
@@ -98,10 +150,8 @@ public sealed class FamilyInvitationService(
             };
 
             await invitationRepository.AddAsync(
-                invitation,
+                existingInvitation,
                 cancellationToken);
-
-            existingInvitation = invitation;
         }
 
         await invitationRepository.SaveChangesAsync(
@@ -109,79 +159,27 @@ public sealed class FamilyInvitationService(
 
         var invitationLink = invitationLinkBuilder.Build(token);
 
-        var emailBody = $"""
-            <p>You have been invited to join <strong>{System.Net.WebUtility.HtmlEncode(family.Name)}</strong> on SpendMate.</p>
-            <p><a href="{System.Net.WebUtility.HtmlEncode(invitationLink)}">Accept invitation</a></p>
-            <p>This invitation expires in 7 days.</p>
-            """;
+        if (request.InvitationType == FamilyInvitationType.Email)
+        {
+            var emailBody = $"""
+                <p>You have been invited to join <strong>{System.Net.WebUtility.HtmlEncode(family.Name)}</strong> on SpendMate.</p>
+                <p><a href="{System.Net.WebUtility.HtmlEncode(invitationLink)}">Accept invitation</a></p>
+                <p>This invitation expires in 7 days.</p>
+                """;
 
-        var subject = $"Invitation to join {family.Name} on SpendMate";
+            var subject = $"Invitation to join {family.Name} on SpendMate";
 
-        await emailSender.SendAsync(
-            email,
-            subject,
-            emailBody,
-            cancellationToken);
-
-        var response = new FamilyInvitationResponse(
-            existingInvitation.Id,
-            existingInvitation.FamilyId,
-            existingInvitation.Email,
-            existingInvitation.Status.ToString(),
-            existingInvitation.CreatedAtUtc,
-            existingInvitation.ExpiresAtUtc);
+            await emailSender.SendAsync(
+                email!,
+                subject,
+                emailBody,
+                cancellationToken);
+        }
 
         return new CreateFamilyInvitationResult(
-            response,
-            token,
+            ToResponse(existingInvitation),
+            invitationLink,
             wasResent);
-    }
-
-    private void EnsureAuthenticated()
-    {
-        if (currentUser.UserId == Guid.Empty)
-        {
-            throw new UnauthorizedAccessException(
-                "The current user is not authenticated.");
-        }
-    }
-
-    private static string NormalizeEmail(string? email)
-    {
-        return email?.Trim().ToLowerInvariant() ?? string.Empty;
-    }
-
-    private static void ValidateEmail(string email)
-    {
-        if (email.Length is 0 or > 254 ||
-            !MailAddress.TryCreate(email, out var address) ||
-            !string.Equals(
-                address.Address,
-                email,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ArgumentException(
-                "A valid email address is required.",
-                nameof(email));
-        }
-    }
-
-    private static string GenerateToken()
-    {
-        var bytes = RandomNumberGenerator.GetBytes(32);
-
-        return Convert.ToBase64String(bytes)
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
-    }
-
-    private static string HashToken(string token)
-    {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(token);
-        var hash = SHA256.HashData(bytes);
-
-        return Convert.ToHexString(hash);
     }
 
     public async Task<FamilyInvitationResponse> AcceptAsync(
@@ -237,21 +235,50 @@ public sealed class FamilyInvitationService(
                 "The current user was not found.");
         }
 
-        if (user.EmailVerifiedAtUtc is null)
+        switch (invitation.InvitationType)
         {
-            throw new UnauthorizedAccessException(
-                "Email verification is required to accept invitations.");
-        }
+            case FamilyInvitationType.Email:
+                if (user.EmailVerifiedAtUtc is null)
+                {
+                    throw new UnauthorizedAccessException(
+                        "Email verification is required to accept invitations.");
+                }
 
-        var normalizedUserEmail = user.Email.Trim().ToLowerInvariant();
+                var normalizedUserEmail =
+                    NormalizeEmail(user.Email);
 
-        if (!string.Equals(
-            normalizedUserEmail,
-            invitation.NormalizedEmail,
-            StringComparison.Ordinal))
-        {
-            throw new UnauthorizedAccessException(
-                "The invitation email does not match the current account.");
+                if (!string.Equals(
+                    normalizedUserEmail,
+                    invitation.NormalizedEmail,
+                    StringComparison.Ordinal))
+                {
+                    throw new UnauthorizedAccessException(
+                        "The invitation email does not match the current account.");
+                }
+
+                break;
+
+            case FamilyInvitationType.Phone:
+                if (user.PhoneVerifiedAtUtc is null)
+                {
+                    throw new UnauthorizedAccessException(
+                        "Phone verification is required to accept invitations.");
+                }
+
+                if (!string.Equals(
+                    user.PhoneNumber,
+                    invitation.PhoneNumber,
+                    StringComparison.Ordinal))
+                {
+                    throw new UnauthorizedAccessException(
+                        "The invitation phone number does not match the current account.");
+                }
+
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "The invitation type is invalid.");
         }
 
         var isAlreadyMember = await membershipRepository.IsMemberAsync(
@@ -285,17 +312,9 @@ public sealed class FamilyInvitationService(
                 "This invitation is no longer available.");
         }
 
-        invitation.Status = FamilyInvitationStatus.Accepted;
-        invitation.AcceptedAtUtc = now;
-        invitation.AcceptedByUserId = user.Id;
-
-        return new FamilyInvitationResponse(
-            invitation.Id,
-            invitation.FamilyId,
-            invitation.Email,
-            FamilyInvitationStatus.Accepted.ToString(),
-            invitation.CreatedAtUtc,
-            invitation.ExpiresAtUtc);
+        return ToResponse(
+            invitation,
+            FamilyInvitationStatus.Accepted);
     }
 
     public async Task<FamilyInvitationResponse> RevokeAsync(
@@ -350,11 +369,86 @@ public sealed class FamilyInvitationService(
         await invitationRepository.SaveChangesAsync(
             cancellationToken);
 
+        return ToResponse(invitation);
+    }
+
+    private void EnsureAuthenticated()
+    {
+        if (currentUser.UserId == Guid.Empty)
+        {
+            throw new UnauthorizedAccessException(
+                "The current user is not authenticated.");
+        }
+    }
+
+    private static string NormalizeEmail(string? email)
+    {
+        return email?.Trim().ToLowerInvariant() ?? string.Empty;
+    }
+
+    private static void ValidateEmail(string email)
+    {
+        if (email.Length is 0 or > 254 ||
+            !MailAddress.TryCreate(email, out var address) ||
+            !string.Equals(
+                address.Address,
+                email,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "A valid email address is required.",
+                nameof(email));
+        }
+    }
+
+    private static string NormalizePhoneNumber(string? phoneNumber)
+    {
+        return phoneNumber?.Trim() ?? string.Empty;
+    }
+
+    private static void ValidatePhoneNumber(string phoneNumber)
+    {
+        if (phoneNumber.Length is < 3 or > 16 ||
+            phoneNumber[0] != '+' ||
+            phoneNumber[1] is < '1' or > '9' ||
+            phoneNumber.Skip(2).Any(
+                character => character is < '0' or > '9'))
+        {
+            throw new ArgumentException(
+                "A valid phone number in E.164 format is required.",
+                nameof(phoneNumber));
+        }
+    }
+
+    private static string GenerateToken()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(32);
+
+        return Convert.ToBase64String(bytes)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+    }
+
+    private static string HashToken(string token)
+    {
+        var bytes = Encoding.UTF8.GetBytes(token);
+        var hash = SHA256.HashData(bytes);
+
+        return Convert.ToHexString(hash);
+    }
+
+    private static FamilyInvitationResponse ToResponse(
+        FamilyInvitation invitation,
+        FamilyInvitationStatus? status = null)
+    {
         return new FamilyInvitationResponse(
             invitation.Id,
             invitation.FamilyId,
+            invitation.InvitationType,
             invitation.Email,
-            invitation.Status.ToString(),
+            invitation.PhoneNumber,
+            (status ?? invitation.Status).ToString(),
             invitation.CreatedAtUtc,
             invitation.ExpiresAtUtc);
     }

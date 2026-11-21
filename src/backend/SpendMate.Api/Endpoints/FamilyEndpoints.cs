@@ -50,6 +50,40 @@ public static class FamilyEndpoints
             }
         });
 
+        // Add an existing user to a shared family by verified phone number
+        group.MapPost("/{familyId:guid}/members", async (
+            Guid familyId,
+            AddFamilyMemberByPhoneRequest request,
+            FamilyService familyService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await familyService.AddMemberByPhoneAsync(
+                    familyId,
+                    request.PhoneNumber,
+                    cancellationToken);
+
+                return Results.NoContent();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Results.Forbid();
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
         // Update a family member's role
         group.MapPatch("/{familyId:guid}/members/{userId:guid}/role", async (
             Guid familyId,

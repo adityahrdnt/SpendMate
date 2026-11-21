@@ -9,5 +9,8 @@ public enum FamilyMembershipOperationResult
     TargetMembershipNotFound,
     LastOwner,
     PersonalFamilyNotFound,
-    CannotChangeOwnRole
+    CannotChangeOwnRole,
+    UserNotFound,
+    PhoneNotVerified,
+    AlreadyMember
 }

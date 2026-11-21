@@ -7,12 +7,17 @@ import {
   removeFamilyMember as removeFamilyMemberApi,
   setActiveFamily as setActiveFamilyApi,
   updateFamilyMemberRole as updateFamilyMemberRoleApi,
+  addFamilyMemberByPhone as addFamilyMemberByPhoneApi,
+  createFamilyInvitation as createFamilyInvitationApi,
+  revokeFamilyInvitation as revokeFamilyInvitationApi,
 } from "../services/familyApi";
 
 import type {
   Family,
   FamilyMember,
   UpdateFamilyMemberRoleRequest,
+  AddFamilyMemberByPhoneRequest,
+  CreateFamilyInvitationRequest,
 } from "../types/family";
 
 export function useFamilies() {
@@ -26,6 +31,11 @@ export function useFamilies() {
   const isRemovingMember = ref(false);
   const memberErrorMessage = ref("");
   const errorMessage = ref("");
+  const isAddingMember = ref(false);
+  const isCreatingInvitation = ref(false);
+  const isRevokingInvitation = ref(false);
+  const invitationErrorMessage = ref("");
+  const invitationSuccessMessage = ref("");
 
   async function loadFamilies(): Promise<boolean> {
     isLoadingFamilies.value = true;
@@ -187,6 +197,101 @@ export function useFamilies() {
     }
   }
 
+  async function addMemberByPhone(
+    familyId: string,
+    request: AddFamilyMemberByPhoneRequest,
+  ): Promise<boolean> {
+    memberErrorMessage.value = "";
+
+    if (isAddingMember.value) {
+      return false;
+    }
+
+    isAddingMember.value = true;
+
+    try {
+      await addFamilyMemberByPhoneApi(familyId, request);
+      await loadFamilyMembers(familyId);
+      return true;
+    } catch (error) {
+      memberErrorMessage.value =
+        error instanceof ApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Unable to add family member. Please try again.";
+
+      return false;
+    } finally {
+      isAddingMember.value = false;
+    }
+  }
+
+  async function createInvitation(
+    familyId: string,
+    request: CreateFamilyInvitationRequest,
+  ) {
+    invitationErrorMessage.value = "";
+    invitationSuccessMessage.value = "";
+
+    if (isCreatingInvitation.value) {
+      return null;
+    }
+
+    isCreatingInvitation.value = true;
+
+    try {
+      const result = await createFamilyInvitationApi(familyId, request);
+
+      invitationSuccessMessage.value = result.wasResent
+        ? "Invitation resent successfully."
+        : "Invitation created successfully.";
+
+      return result;
+    } catch (error) {
+      invitationErrorMessage.value =
+        error instanceof ApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Unable to create invitation. Please try again.";
+
+      return null;
+    } finally {
+      isCreatingInvitation.value = false;
+    }
+  }
+
+  async function revokeInvitation(
+    familyId: string,
+    invitationId: string,
+  ): Promise<boolean> {
+    invitationErrorMessage.value = "";
+
+    if (isRevokingInvitation.value) {
+      return false;
+    }
+
+    isRevokingInvitation.value = true;
+
+    try {
+      await revokeFamilyInvitationApi(familyId, invitationId);
+      invitationSuccessMessage.value = "Invitation revoked successfully.";
+      return true;
+    } catch (error) {
+      invitationErrorMessage.value =
+        error instanceof ApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Unable to revoke invitation. Please try again.";
+
+      return false;
+    } finally {
+      isRevokingInvitation.value = false;
+    }
+  }
+
   return {
     families,
     isLoadingFamilies,
@@ -205,5 +310,13 @@ export function useFamilies() {
     clearFamilyMembers,
     updateMemberRole,
     removeMember,
+    isAddingMember,
+    isCreatingInvitation,
+    isRevokingInvitation,
+    invitationErrorMessage,
+    invitationSuccessMessage,
+    addMemberByPhone,
+    createInvitation,
+    revokeInvitation,
   };
 }

@@ -10,9 +10,14 @@ public class FamilyInvitation
 
     public Guid InvitedByUserId { get; set; }
 
-    public required string Email { get; set; }
+    public FamilyInvitationType InvitationType { get; set; } =
+        FamilyInvitationType.Email;
 
-    public required string NormalizedEmail { get; set; }
+    public string? Email { get; set; }
+
+    public string? NormalizedEmail { get; set; }
+
+    public string? PhoneNumber { get; set; }
 
     public required string TokenHash { get; set; }
 

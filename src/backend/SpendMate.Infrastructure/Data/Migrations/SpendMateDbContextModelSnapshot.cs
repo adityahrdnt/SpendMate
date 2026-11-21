@@ -117,7 +117,6 @@ namespace SpendMate.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Email")
-                        .IsRequired()
                         .HasMaxLength(254)
                         .HasColumnType("character varying(254)");
 
@@ -127,13 +126,21 @@ namespace SpendMate.Infrastructure.Data.Migrations
                     b.Property<Guid>("FamilyId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("InvitationType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<Guid>("InvitedByUserId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("NormalizedEmail")
-                        .IsRequired()
                         .HasMaxLength(254)
                         .HasColumnType("character varying(254)");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
 
                     b.Property<DateTimeOffset?>("RevokedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -159,9 +166,16 @@ namespace SpendMate.Infrastructure.Data.Migrations
 
                     b.HasIndex("FamilyId", "NormalizedEmail")
                         .IsUnique()
-                        .HasFilter("\"Status\" = 'Pending'");
+                        .HasFilter("\"Status\" = 'Pending' AND \"InvitationType\" = 'Email'");
 
-                    b.ToTable("FamilyInvitations");
+                    b.HasIndex("FamilyId", "PhoneNumber")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'Pending' AND \"InvitationType\" = 'Phone'");
+
+                    b.ToTable("FamilyInvitations", t =>
+                        {
+                            t.HasCheckConstraint("CK_FamilyInvitations_Recipient", "(\r\n    \"InvitationType\" = 'Email'\r\n    AND \"Email\" IS NOT NULL\r\n    AND \"NormalizedEmail\" IS NOT NULL\r\n    AND \"PhoneNumber\" IS NULL\r\n)\r\nOR\r\n(\r\n    \"InvitationType\" = 'Phone'\r\n    AND \"Email\" IS NULL\r\n    AND \"NormalizedEmail\" IS NULL\r\n    AND \"PhoneNumber\" IS NOT NULL\r\n)");
+                        });
                 });
 
             modelBuilder.Entity("SpendMate.Domain.Entities.FamilyMembership", b =>
