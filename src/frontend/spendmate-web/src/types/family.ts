@@ -29,3 +29,32 @@ export interface FamilyMember {
 export interface UpdateFamilyMemberRoleRequest {
   role: FamilyRole;
 }
+
+export type FamilyInvitationType = "Email" | "Phone";
+
+export interface CreateFamilyInvitationRequest {
+  invitationType: FamilyInvitationType;
+  email?: string;
+  phoneNumber?: string;
+}
+
+export interface FamilyInvitation {
+  id: string;
+  familyId: string;
+  invitationType: FamilyInvitationType;
+  email: string | null;
+  phoneNumber: string | null;
+  status: string;
+  createdAtUtc: string;
+  expiresAtUtc: string;
+}
+
+export interface CreateFamilyInvitationResult {
+  invitation: FamilyInvitation;
+  invitationLink: string;
+  wasResent: boolean;
+}
+
+export interface AddFamilyMemberByPhoneRequest {
+  phoneNumber: string;
+}

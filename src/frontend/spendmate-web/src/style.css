@@ -1996,6 +1996,110 @@ tbody tr:hover {
   font-size: 11px;
 }
 
+
+.family-action-panel {
+  padding: 22px;
+  margin-bottom: 20px;
+}
+
+.family-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.family-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
+  max-width: 460px;
+}
+
+.family-form-group label,
+.invitation-link-section > label {
+  color: #58655c;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.family-form-group input,
+.family-form-group select,
+.invitation-link-row input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #e4e9e4;
+  border-radius: 8px;
+  background: #fff;
+  color: #29382f;
+  font-size: 12px;
+}
+
+.family-form-group small,
+.family-form-hint {
+  color: #939c95;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.family-form-message {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.family-form-message.error {
+  color: #bd4545;
+}
+
+.family-form-message.success {
+  color: var(--green-dark);
+}
+
+.invitation-link-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 620px;
+  margin-top: 20px;
+}
+
+.invitation-link-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.invitation-link-row input {
+  min-width: 0;
+}
+
+.invitation-link-row .secondary-button {
+  min-height: 40px;
+}
+
+.family-form-hint {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .family-action-panel {
+    padding: 17px 15px;
+  }
+
+  .invitation-link-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .invitation-link-row .secondary-button {
+    width: 100%;
+  }
+}
+
+
 .family-management-note {
   margin-top: 20px;
   padding: 12px 14px;

@@ -12,6 +12,9 @@ import type {
   FamilyMember,
   SetActiveFamilyRequest,
   UpdateFamilyMemberRoleRequest,
+  AddFamilyMemberByPhoneRequest,
+  CreateFamilyInvitationRequest,
+  CreateFamilyInvitationResult,
 } from "../types/family";
 
 export function getFamilies(): Promise<Family[]> {
@@ -54,4 +57,31 @@ export function removeFamilyMember(
   userId: string,
 ): Promise<void> {
   return deleteRequest(`/api/families/${familyId}/members/${userId}`);
+}
+
+export function addFamilyMemberByPhone(
+  familyId: string,
+  request: AddFamilyMemberByPhoneRequest,
+): Promise<void> {
+  return postJson<AddFamilyMemberByPhoneRequest, void>(
+    `/api/families/${familyId}/members`,
+    request,
+  );
+}
+
+export function createFamilyInvitation(
+  familyId: string,
+  request: CreateFamilyInvitationRequest,
+): Promise<CreateFamilyInvitationResult> {
+  return postJson<CreateFamilyInvitationRequest, CreateFamilyInvitationResult>(
+    `/api/families/${familyId}/invitations/`,
+    request,
+  );
+}
+
+export function revokeFamilyInvitation(
+  familyId: string,
+  invitationId: string,
+): Promise<void> {
+  return deleteRequest(`/api/families/${familyId}/invitations/${invitationId}`);
 }
